@@ -180,7 +180,7 @@ BAD: «Код надо переписать на queued jobs».
 - **Авторизация:** `auth` guard (web), `auth:api` для API. Роли — `UserRole` enum (`User` | `Admin`). Проверка — только через `Gate`/`Policy`. Middleware `role:admin` для админ-маршрутов, `EnsurePremium` для премиум-маршрутов.
 - **ИИ:** `LlmClient` интерфейс (реализация `DummyLlmClient` для dev/тестов), `PromptResolver` собирает Global + Course-специфичный промпт, `AiFeedbackService` / `AiTaskGeneratorService` — сервисные методы.
 - **Изоляция среды:** `PracticeEnvironmentManager` интерфейс, реализация `LocalSqlitePracticeEnvironment` для dev/тестов.
-- **Тесты:** PHPUnit (или Pest — выбор за пользователем), `tests/Unit/...` — максимальное покрытие, `tests/Feature/...` — только smoke (правило №15). Запуск: `php artisan test`. Без Docker.
+- **Тесты:** PHPUnit (или Pest — выбор за пользователем), `tests/Unit/...` — максимальное покрытие, `tests/Feature/...` — только smoke (правило №15). Запуск: `composer test` (MySQL в Docker-контейнере `db-testing`, см. `AGENTS.md §3.1`).
 
 ---
 

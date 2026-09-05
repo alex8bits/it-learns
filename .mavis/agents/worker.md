@@ -46,8 +46,8 @@ description: Implementation specialist for it-learns (Laravel 13 / PHP 8.3 — �
   - `routes/api.php` — API (с версионированием `v1/`, `v2/` с первого дня — правило №10).
 - **Авторизация:**
   - `auth` guard (web), `auth:api` для API.
-  - Роли — `UserRole` enum (`User` | `Admin`).
-  - Middleware `role:admin` для админ-маршрутов, `EnsurePremium` для премиум-маршрутов, `throttle:...` для критичных эндпоинтов (правило №11).
+  - Роли и permissions — через **`spatie/laravel-permission`** (правило №20). `User` использует `HasRoles` трейт. `UserRole` enum (`User` | `Admin`) — **справочник типизации**, **не** колонка в `users`.
+  - Middleware `role:admin` (Spatie) для админ-маршрутов, `EnsurePremium` для премиум-маршрутов, `throttle:...` для критичных эндпоинтов (правило №11).
 - **ИИ:**
   - `LlmClient` интерфейс, реализация `DummyLlmClient` для dev/тестов.
   - `PromptResolver` собирает Global + Course-специфичный промпт.
@@ -56,7 +56,7 @@ description: Implementation specialist for it-learns (Laravel 13 / PHP 8.3 — �
   - `PracticeEnvironmentManager` интерфейс, реализация `LocalSqlitePracticeEnvironment` для dev/тестов.
   - Среда **всегда** уничтожается в `finally` блоке.
   - Таймаут, лимит размера ответа, анти-DoS — обязательны.
-- **Тесты:** `php artisan test` (без Docker). `tests/Unit/...` — максимальное покрытие, `tests/Feature/...` — только smoke (правило №15).
+- **Тесты:** `composer test` (MySQL в Docker-контейнере `db-testing`, см. `AGENTS.md §3.1`). `tests/Unit/...` — максимальное покрытие, `tests/Feature/...` — только smoke (правило №15).
 
 ---
 
@@ -67,7 +67,7 @@ description: Implementation specialist for it-learns (Laravel 13 / PHP 8.3 — �
 - **Авторизация — только Policy, не Gate::define('admin', ...).** На каждую доменную сущность (User, Course, Level, Lesson, TheoryTask, PracticeTask, Payment, AiPrompt, AdminAuditLog, UserLlmLimit) — `XxxPolicy` с методами `viewAny`, `view`, `create`, `update`, `delete`. `role:admin` middleware допустим **только** как групповой gatekeeper на маршрутах `/admin/*`, не как способ проверки прав в коде.
 - **Валидация только в FormRequest.** Никаких `$request->validate(...)` и ручной валидации в контроллере.
 - **Enum'ы для ролей, статусов, типов, уровней.** Никаких магических строк `'admin'`, `0/1`, `'mysql'`.
-- **Авторизация только через `Gate`/`Policy`.** Никаких `auth()->user()->role === 'admin'`, никаких проверок ролей вручную.
+- **Авторизация только через `Gate`/`Policy`/Spatie.** Никаких `auth()->user()->role === 'admin'`, `auth()->user()->is_admin`, прямых сравнений строк, обращений к `users.role` (этой колонки **не существует**). Используем `$user->hasRole(UserRole::Admin->value)`, `$user->can(...)`, `$this->authorize(...)`, `@can`, `Gate::allows` (правила №7 и №20).
 - **`DB::transaction(...)` для мутаций в 2+ таблицы.** В Action-классе.
 - **API ответы — через Resource.** Пагинация — `paginate()`/`cursorPaginate()` + Resource collection.
 - **Eager loading по умолчанию** для коллекций, отдаваемых во view/Resource.
@@ -75,6 +75,7 @@ description: Implementation specialist for it-learns (Laravel 13 / PHP 8.3 — �
 - **Миграции только forward.** Нельзя редактировать уже применённую миграцию — пишем новую.
 - **Премиум-маршруты** — под `EnsurePremium` middleware, не под проверкой роли.
 - **ИИ-вызовы** — через `LlmClient` интерфейс, не напрямую к провайдеру. Промпт — через `PromptResolver`.
+- **Изменение промпта** — только через `PromptVersionService::createNewVersion()`. **Никогда** напрямую в `settings.value` или `courses.ai_course_prompt` — это убивает историю версий и audit-log. `PromptVersionService` атомарно создаёт запись в `ai_prompt_versions`, обновляет кэш и пишет в `admin_audit_logs`.
 - **Практика** — через `PracticeEnvironmentManager`. Среда уничтожается в `finally`. Таймаут, лимиты, анти-DoS — обязательны.
 - **SOLID прагматично (правило №1).** YAGNI > догмы. Не плодить абстракции ради абстракций.
 
@@ -106,8 +107,9 @@ description: Implementation specialist for it-learns (Laravel 13 / PHP 8.3 — �
 - Писать в проде `dd`/`dump`/`var_dump`/`Log::error` со стектрейсом в проде — но для отладки в dev `Log::debug` допустим.
 - Сдавать код с красными тестами.
 - Сдавать код без тестов, если таск затрагивает логику.
-- Обходить `Gate`/`Policy` ради «быстро проверить».
-- Хардкодить строки ролей/статусов — только enum.
+- Обходить `Gate`/`Policy`/`Spatie` ради «быстро проверить».
+- Хардкодить строки ролей/статусов — только enum (например, `UserRole::Admin->value`).
+- Создавать миграцию с колонкой `users.role` — роли через Spatie (правило №20).
 - Редактировать уже применённую миграцию.
 
 ---

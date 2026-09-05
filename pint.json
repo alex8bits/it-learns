@@ -1,0 +1,26 @@
+{
+    "preset": "laravel",
+    "rules": {
+        "declare_strict_types": true,
+        "ordered_imports": {
+            "sort_algorithm": "alpha"
+        },
+        "global_namespace_import": {
+            "import_classes": true,
+            "import_constants": true,
+            "import_functions": true
+        },
+        "no_unused_imports": true,
+        "not_operator_with_successor_space": true,
+        "ordered_class_elements": true,
+        "protected_to_private": true,
+        "self_accessor": true,
+        "single_quote": true,
+        "trailing_comma_in_multiline": true
+    },
+    "exclude": [
+        "vendor",
+        "storage",
+        "bootstrap/cache"
+    ]
+}

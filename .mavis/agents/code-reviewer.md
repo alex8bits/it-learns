@@ -73,8 +73,9 @@ description: Read-only code quality reviewer для it-learns (Laravel 13 / PHP 
 
 - [ ] **Бизнес-логика в контроллере** — `if`, `foreach`, запросы к БД, бизнес-правила в `Controller@method`. Должно быть делегировано в `Action`/`Service`.
 - [ ] **Валидация в контроллере** — `$request->validate(...)` или ручная валидация в теле метода. Должно быть в `FormRequest`.
-- [ ] **Захардкоженные строки ролей/статусов** — `'admin'`, `'published'`, `0/1` вместо `UserRole::Admin`, `CourseStatus::Published`.
-- [ ] **Проверка ролей вручную** — `auth()->user()->role === 'admin'`. Должно быть `$this->authorize(...)`, `@can`, `Gate::allows`.
+- [ ] **Захардкоженные строки ролей/статусов** — `'admin'`, `'published'`, `0/1` вместо `UserRole::Admin->value`, `CourseStatus::Published`.
+- [ ] **Проверка ролей вручную** — `auth()->user()->role === 'admin'`, `auth()->user()->is_admin`, прямое чтение `users.role` (этой колонки **не существует**). Должно быть `$user->hasRole(UserRole::Admin->value)`, `$user->can(...)`, `$this->authorize(...)`, `@can`, `Gate::allows`. Колонка `users.role` **не** используется — роли через Spatie.
+- [ ] **Прямое использование `users.role`** или миграция, добавляющая колонку `role` в `users` — нарушение правила №20. Роли — через Spatie, `UserRole` enum — только справочник типизации.
 - [ ] **API ответ — не Resource** — `Model::toArray()`, `json_encode($model)`, `response()->json($data)` без `Resource`.
 - [ ] **API ответ — нет версионирования** — маршрут не под `/api/v1/...` или `/api/v2/...` (правило №10).
 - [ ] **Eloquent вне слоя данных** — `Model::query()` в Controller/Action, минуя отношения. Допустимо, если Action явно работает с моделью.
@@ -125,6 +126,7 @@ description: Read-only code quality reviewer для it-learns (Laravel 13 / PHP 
 - [ ] **Прогресс пользователя пишется мимо Action** — прямой `UserCourseProgress::create([...])` в контроллере.
 - [ ] **`PromptResolver` не учитывает `ai_course_prompt`** — уточняющий промпт курса (`courses.ai_course_prompt`) игнорируется без явной причины. Должна быть склейка `global + "\n\n" + course` через `PromptResolver::resolve()`.
 - [ ] **Прямая запись в `ai_prompts` / `ai_course_prompts`** — этих таблиц **не должно быть** (общий промпт в `settings`, уточняющий в `courses.ai_course_prompt`).
+- [ ] **Прямая запись в `settings.value` или `courses.ai_course_prompt` минуя `PromptVersionService`** — изменение промпта должно идти через `PromptVersionService::createNewVersion()`, чтобы создавалась запись в `ai_prompt_versions` (история) и audit-log. Напрямую писать в `settings` или `courses` — **HIGH** для фич, меняющих промпт.
 - [ ] **Превью-картинка курса хранится в БД (BLOB)** — должна быть в `Storage::disk('public')`, в БД — только путь (`preview_image_path`).
 - [ ] **ИИ-вызов без проверки лимита** — `LlmClient::complete()` вызывается без предварительного `AiLimitGuard::check()`. Превышение лимита → `HTTP 429`, без ретраев. **HIGH**, если фича касается ИИ.
 - [ ] **Админ-операция без записи в audit-лог** — `AdminAuditAction` не пишется в `admin_audit_logs` через `AdminAuditLogger`. **HIGH**, если фича меняет админ-операции.

@@ -1,0 +1,14 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+parameters:
+    paths:
+        - app
+        - config
+        - database
+        - routes
+        - tests
+    level: 7
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false

@@ -11,6 +11,15 @@
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
         </testsuite>
+        <!--
+            test-coverage suite removed in stage 0 retrospective: PHPUnit 12 rejects
+            the same files in multiple suites (warnings at run time), and does not
+            support a coverage element inside testsuite. To run tests with coverage,
+            use the artisan test command with the coverage-text flag (or any of
+            coverage-clover, coverage-html, etc.). When Xdebug or PCOV is configured,
+            coverage-text works against the default Unit and Feature suites without
+            needing a separate alias.
+        -->
     </testsuites>
     <source>
         <include>
@@ -23,8 +32,12 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="3317"/>
+        <env name="DB_DATABASE" value="it_learns_test"/>
+        <env name="DB_USERNAME" value="root"/>
+        <env name="DB_PASSWORD" value=""/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

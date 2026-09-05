@@ -1,49 +1,132 @@
 <laravel-boost-guidelines>
-# Laravel Application
+=== foundation rules ===
 
-This repository contains a Laravel application. Complete the following setup before working on the user's request.
+# Laravel Boost Guidelines
 
-## Prerequisites
+The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience when building Laravel applications.
 
-Verify that PHP and Composer are available:
+## Foundational Context
 
-```sh
-php -v
-composer -V
-```
+This application is a Laravel application running on PHP 8.3. You are an expert with the Laravel ecosystem. Always use the APIs that match the installed major version of each package — do not assume a version.
 
-If either command is unavailable, detect the user's operating system and install the prerequisites with the appropriate command:
+Before relying on a package's API, confirm its installed version:
+- PHP packages: run `composer show --direct` to list direct dependencies with versions, or `composer show <vendor/package>` for a single package.
+- JS packages: check `package.json` for the installed versions.
 
-macOS:
+## Conventions
 
-```sh
-/bin/bash -c "$(curl -fsSL https://php.new/install/mac/8.5)"
-```
+- You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, and naming.
+- Use descriptive names for variables and methods. For example, `isRegisteredForDiscounts`, not `discount()`.
+- Check for existing components to reuse before writing a new one.
 
-Windows PowerShell:
+## Verification Scripts
 
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://php.new/install/windows/8.5'))
-```
+- Do not create verification scripts or tinker when tests cover that functionality and prove they work. Unit and feature tests are more important.
 
-Linux:
+## Application Structure & Architecture
 
-```sh
-/bin/bash -c "$(curl -fsSL https://php.new/install/linux/8.5)"
-```
+- Stick to existing directory structure; don't create new base folders without approval.
+- Do not change the application's dependencies without approval.
 
-After installation, ask the user to restart their terminal. If the agent needs the restarted shell to continue, ask the user to reopen their terminal and rerun their original prompt.
+## Frontend Bundling
 
-## Agent Setup
+- If the user doesn't see a frontend change reflected in the UI, it could mean they need to run `npm run build`, `npm run dev`, or `composer run dev`. Ask them.
 
-Install Laravel Boost from the application root before making application changes:
+## Documentation Files
 
-```sh
-composer require laravel/boost --dev
-php artisan boost:install
-```
+- You must only create documentation files if explicitly requested by the user.
 
-Boost replaces these bootstrap instructions with guidelines tailored to the application. After installation, read `AGENTS.md` again and continue with the user's original request using the generated guidelines.
+## Replies
+
+- Be concise in your explanations - focus on what's important rather than explaining obvious details.
+
+=== boost rules ===
+
+# Laravel Boost
+
+## Project Rules
+
+- This project contains committed, area-grouped rules in `.ai/rules` when that directory exists (settled decisions, non-obvious traps, standing constraints). Framework and package guidelines that only apply to specific paths (testing, frontend, components) also live there, under `.ai/rules/boost` — this is not just recorded decisions, it is load-bearing guidance you have not seen inline. Before you enter plan mode or create/edit any file, you MUST first: open @.ai/rules/index.md (it maps file globs to rule files), read every rule file whose globs cover the path(s) in scope, and run `grep -rin 'keyword' .ai/rules` to catch what a path match alone misses. Do not write code until you have read and are following every matching rule. If `.ai/rules` does not exist, continue without it.
+
+## Artisan
+
+- Run Artisan commands directly via the command line (e.g., `php artisan route:list`). Use `php artisan list` to discover available commands and `php artisan [command] --help` to check parameters.
+- Inspect routes with `php artisan route:list`. Filter with: `--method=GET`, `--name=users`, `--path=api`, `--except-vendor`, `--only-vendor`.
+- Read configuration values using dot notation: `php artisan config:show app.name`, `php artisan config:show database.default`. Or read config files directly from the `config/` directory.
+
+## Tinker
+
+- Execute PHP in app context for debugging and testing code. Do not create models without user approval, prefer tests with factories instead. Prefer existing Artisan commands over custom tinker code.
+- Always use single quotes to prevent shell expansion: `php artisan tinker --execute 'Your::code();'`
+  - Double quotes for PHP strings inside: `php artisan tinker --execute 'User::where("active", true)->count();'`
+
+=== php rules ===
+
+# PHP
+
+- Always use curly braces for control structures, even for single-line bodies.
+- Use PHP 8 constructor property promotion: `public function __construct(public GitHub $github) { }`. Do not leave empty zero-parameter `__construct()` methods unless the constructor is private.
+- Use explicit return type declarations and type hints for all method parameters: `function isAccessible(User $user, ?string $path = null): bool`
+- Use TitleCase for Enum keys: `FavoritePerson`, `BestLake`, `Monthly`.
+- Prefer PHPDoc blocks over inline comments. Only add inline comments for exceptionally complex logic.
+- Use array shape type definitions in PHPDoc blocks.
+
+=== deployments rules ===
+
+# Deployment
+
+- Laravel can be deployed using [Laravel Cloud](https://cloud.laravel.com/), which is the fastest way to deploy and scale production Laravel applications.
+
+=== laravel/core rules ===
+
+# Do Things the Laravel Way
+
+- Use `php artisan make:` commands to create new files (i.e. migrations, controllers, models, etc.). You can list available Artisan commands using `php artisan list` and check their parameters with `php artisan [command] --help`.
+- If you're creating a generic PHP class, use `php artisan make:class`.
+- Pass `--no-interaction` to all Artisan commands to ensure they work without user input. You should also pass the correct `--options` to ensure correct behavior.
+
+### Model Creation
+
+- When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `php artisan make:model --help` to check the available options.
+
+## APIs & Eloquent Resources
+
+- For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
+
+## URL Generation
+
+- When generating links to other pages, prefer named routes and the `route()` function.
+
+## Testing
+
+- When creating models for tests, use the factories for the models. Check if the factory has custom states that can be used before manually setting up the model.
+- Faker: Use methods such as `$this->faker->word()` or `fake()->randomDigit()`. Follow existing conventions whether to use `$this->faker` or `fake()`.
+- When creating tests, make use of `php artisan make:test [options] {name}` to create a feature test, and pass `--unit` to create a unit test. Most tests should be feature tests.
+
+## Vite Error
+
+- If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
+
+=== pint/core rules ===
+
+# Laravel Pint Code Formatter
+
+- If you have modified any PHP files, you must run `vendor/bin/pint --dirty --format agent` before finalizing changes to ensure your code matches the project's expected style.
+- Do not run `vendor/bin/pint --test --format agent`, simply run `vendor/bin/pint --format agent` to fix any formatting issues.
+
+=== phpunit/core rules ===
+
+# PHPUnit
+
+- This project uses PHPUnit. Create tests with `php artisan make:test --phpunit {name}`.
+- Do not include the test suite directory in `{name}`. Use `SomeFeatureTest`, not `Feature/SomeFeatureTest`.
+- Read the `testing-best-practices` skill for guidance on coverage, naming, structure, dependency isolation, and review.
+
+## Running Tests
+
+- Run the narrowest set of tests that covers the change. Pass a file path or `--filter=testName` to `php artisan test --compact`.
+- Rerun a test after each change to it.
+- Run `vendor/bin/phpunit` to call the test runner directly. It accepts the same file path and `--filter=testName` arguments.
 
 ---
 
@@ -156,7 +239,7 @@ vendor/bin/pint --test
 vendor/bin/phpstan analyse
 ```
 
-Локальная БД для тестов — `:memory:` SQLite или отдельная test-БД (настраивается в `phpunit.xml`). **Без Docker.** Никаких `XDEBUG_MODE=off` — тесты идут в обычном PHP-окружении, Xdebug включать не требуется.
+Локальная БД для тестов — MariaDB в `db-testing` контейнере (см. §3.1), поднимается автоматически через `composer test`. Имя БД — `it_learns_test`. Никаких `XDEBUG_MODE=off` — тесты идут в обычном PHP-окружении, Xdebug включать не требуется.
 
 ### Команды Mavis (entry points)
 
@@ -172,20 +255,36 @@ vendor/bin/phpstan analyse
 
 ## 3. Hard rules
 
-### 3.1 Запуск тестов — локально, всегда через `php artisan test`
+### 3.1 Запуск тестов — через `php artisan test` (CI + dev, MySQL в Docker)
 
-**Никаких Docker-обёрток, никаких ручных вызовов PHPUnit напрямую.** Все тесты — через `php artisan test` (Pint, PHPStan, миграции, сидеры — аналогично).
+Тесты идут на **реальном MySQL/MariaDB** в Docker-контейнере `db-testing` (а не на `:memory:` SQLite). Это ближе к проду и ловит MySQL-специфичные баги (collation, strict mode, FK).
+
+`composer test` сам поднимает/останавливает `db-testing` вокруг прогона: `docker compose up -d db-testing` → wait-for-health → `migrate:fresh --env=testing` → `pint` → `phpstan` → `artisan test` → `docker compose stop db-testing`.
+
+**Что нужно разработчику:**
+
+- Docker (Docker Desktop на Windows / Mac, docker на Linux).
+- `docker compose` v2.
+- Образ `mariadb:11` скачается при первом `composer test`.
+
+**Что не нужно вручную:**
+
+- `docker compose up -d db-testing` — `composer test` делает это сам.
+- `migrate:fresh` — `composer test` делает это сам.
+- Держать `db-testing` между прогонами — `composer test` останавливает его в конце.
+
+**Исключение (ручной режим для отладки):** `docker compose --profile testing up -d db-testing` → `php artisan test --filter=...` → `docker compose stop db-testing`. Не забыть `stop` в конце.
 
 ```bash
-# ✅ GOOD
-php artisan test
-php artisan test --filter=SomeTest
-vendor/bin/pint --test
-vendor/bin/phpstan analyse
+# ✅ GOOD — полный цикл
+composer test
 
-# ❌ BAD
-./vendor/bin/phpunit                # мимо Laravel-окружения, без pest.php / bootstrap
-phpunit                             # аналогично
+# ✅ GOOD — узкий прогон (всё равно требует поднятый db-testing)
+php artisan test --filter=SomeTest
+
+# ❌ BAD — мимо Laravel-окружения
+./vendor/bin/phpunit
+phpunit
 ```
 
 ### 3.2 Тестовая политика (Unit vs Feature) — **строже**, чем «risk-based»
@@ -369,7 +468,7 @@ PHPStan (через Larastan) запускается с **уровнем 7** (и
 ### 5.5 Валидация после всех волн
 
 1. Запустить проверки, релевантные затронутой области.
-2. Тесты — локально, **без Docker**, через `php artisan test` (см. §3.1):
+2. Тесты — через `composer test` (см. §3.1; внутри: `docker compose up db-testing` + `php artisan test` + `docker compose stop`):
 
    ```bash
    php artisan test
@@ -441,4 +540,86 @@ PHPStan (через Larastan) запускается с **уровнем 7** (и
 | Посмотреть, как фича сдавалась раньше   | `.mavis/tasks/<date>-<topic>/<NN>-<slug>.md`                   |
 | Свериться с доменом                     | `docs/concept.md`                                              |
 | Свериться с планом реализации           | `docs/platform-plan.md`                                        |
+
+---
+
+## Процесс реализации фичи (it-learns orchestration)
+
+Полный пайплайн — `research -> design -> plan -> implement (worker + code-reviewer) -> final validation`.
+Детальный playbook — в `.mavis/commands/implement-feature.md`. Эта секция —
+жёсткий скелет, который нельзя обходить.
+
+### Роли
+
+- **Orchestrator (root-session, Mavis)** — собирает входы, составляет wave-план,
+  делегирует таски в `worker`, делегирует ревью в `code-reviewer`, **принимает
+  их отчёты как gate**, интегрирует результат.
+- **Worker (sub-agent)** — пишет код строго в рамках одного таска
+  (`.mavis/tasks/<date>-<topic>/<NN>-*.md`). Сдаёт код + тесты + зелёные проверки.
+- **Code Reviewer (sub-agent, read-only)** — ревьюит diff, возвращает
+  `verdict: PASS | NEEDS FIX`. Не правит код. **Это gate**, не параллельная активность.
+
+### Цикл на таск
+
+```
+   ┌──────────────┐
+   │  worker      │ ──► diff + tests
+   └──────┬───────┘
+          │
+          ▼
+   ┌──────────────┐
+   │ code-reviewer│ ──► verdict: PASS | NEEDS FIX
+   └──────┬───────┘
+          │
+   PASS   │   NEEDS FIX
+    │     │     │
+    ▼     │     ▼
+  done    │   worker (фикс) ─► code-reviewer
+          │   до 2 итераций; 3-я с тем же блокером -> СТОП, эскалация
+```
+
+### Hard rules (orchestrator)
+
+1. **Orchestrator НЕ пишет бизнес-код** в `app/`, `database/`, `tests/`, `config/`,
+   `routes/` сам. Это работа `worker`. Tooling-файлы
+   (`composer.json`, `phpunit.xml`, `pint.json`, `phpstan.neon`, `.env.example`,
+   `README.md`, `AGENTS.md`, `.mavis/`) — может, **но только если соответствующий
+   таск явно это санкционирует** (это tooling-таск, может быть выполнен
+   orchestrator-ом) или если это часть wave-плана инфраструктурного этапа,
+   в tasks-доке которого worker-delegation явно помечен как опциональное.
+   В текущем проекте (Этап 0+) все таски идут через `worker`.
+2. **Orchestrator НЕ запускает** `php artisan test` / `vendor/bin/pint` /
+   `vendor/bin/phpstan` для верификации работы `worker`. Это делает сам
+   `worker` в рамках Definition of Done своего таска. Orchestrator проверяет
+   только отчёт `code-reviewer` и финальный `composer test` **после** прохода
+   всех тасков.
+3. **Orchestrator НЕ пропускает `code-reviewer`.** Даже если `worker` отчитался
+   «всё зелёное» — без независимого `verdict: PASS` таск не сдан.
+4. **Один таск = один `worker`-промпт.** Никакого батчинга.
+5. **Параллельные волны** — только если в design/tasks-доке **явно** объявлена
+   независимость file-scope. При сомнениях — последовательно.
+6. **Если блокирующая проблема повторяется** 2 раза подряд (3-я итерация
+   worker -> code-reviewer с тем же блокером) — **СТОП**, эскалация пользователю.
+   Никаких «поправлю сам» или «внесу workaround».
+7. **Если процесс был нарушен** (например, orchestrator сделал часть работы
+   сам, или пропустил `code-reviewer`) — **честно сказать** пользователю
+   и предложить ретроспективный прогон `code-reviewer` на diff. Не скрывать.
+
+### Финальная валидация
+
+Только **после** прохода всех тасков через `worker` + `code-reviewer`:
+- `composer test` (или эквивалент) запускается **orchestrator-ом** как финальный
+  end-to-end smoke. Если упало — это не «оркестратор что-то сломал», это
+  значит `worker` / `code-reviewer` что-то пропустили. Эскалировать.
+
+### Документация процесса
+
+- `.mavis/commands/implement-feature.md` — playbook с подробным flow.
+- `.mavis/agents/worker.md` — контракт worker-агента.
+- `.mavis/agents/code-reviewer.md` — контракт code-reviewer-агента.
+- `.mavis/commands/research-codebase.md`, `design-feature.md`,
+  `create-implementation-plan.md`, `write-documentation.md` — соседние команды,
+  та же дисциплина.
+
+
 </laravel-boost-guidelines>

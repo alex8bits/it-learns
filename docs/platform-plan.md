@@ -33,15 +33,17 @@
 **Что делаем:**
 
 1. Установить и настроить **Laravel Boost** (`composer require laravel/boost --dev`, `php artisan boost:install`). Он перепишет блок-инструкцию в `AGENTS.md` под приложение.
-2. Настроить **качество кода**:
+2. Установить **базовые пакеты** (фиксируются здесь, чтобы не размазывать по этапам):
+   - `composer require laravel/fortify` — auth (правило №19 `AGENTS.md`, Этап 1).
+   - `composer require spatie/laravel-permission` — RBAC (правило №20 `AGENTS.md`, Этап 2). **Используем с самого начала**, чтобы Этап 1 уже создавал пользователей с Spatie-ролью `User`, а Этап 2 не пришлось переделывать.
+3. Настроить **качество кода**:
    - **Pint** — стиль (уже в dev-зависимостях). Сконфигурировать `pint.json` под командные правила (если есть), прогнать `vendor/bin/pint --test`.
    - **PHPStan / Larastan** на **уровне 7** (статический анализ; зафиксировано пользователем). Подключить через `composer require --dev larastan/larastan`, настроить `phpstan.neon` с `level: 7`, прогнать на текущей кодовой базе, зафиксить baseline. Повышение до 8–9 — отдельное решение с явным baseline.
-3. Тест-раннер: **PHPUnit** (зафиксировано). В `composer.json` уже есть `phpunit/phpunit: ^12.5.12` — оставляем. Конфиг `phpunit.xml` настраиваем под it-learns (`:memory:` SQLite для тестов, разделение `test` / `test-coverage`). Pest не подключаем.
-4. Включить **запрет lazy loading в dev-окружении**: в `AppServiceProvider::boot()` добавить `Model::preventLazyLoading(! app()->isProduction())`.
-5. **Конфигурация `phpunit.xml`**: разделить `test` (полный набор) и `test-coverage`, проверить, что БД для тестов — `:memory:` SQLite (или отдельная test-БД).
-6. **CI-смоук** (если используется CI): workflow на `composer install` + `php artisan test` + `vendor/bin/pint --test` + `vendor/bin/phpstan analyse`.
-7. Создать папку `docs/` (уже создана) и зафиксировать в `README.md` ссылки на `AGENTS.md`, `docs/concept.md`, `docs/platform-plan.md`.
-8. `.env.example` — актуализировать под нужды платформы (mail, queue, payment, AI-провайдер — заглушки пока).
+4. Тест-раннер: **PHPUnit** (зафиксировано). В `composer.json` уже есть `phpunit/phpunit: ^12.5.12` — оставляем. Конфиг `phpunit.xml` настраиваем под it-learns (`:memory:` SQLite для тестов, разделение `test` / `test-coverage`). Pest не подключаем.
+5. Включить **запрет lazy loading в dev-окружении**: в `AppServiceProvider::boot()` добавить `Model::preventLazyLoading(! app()->isProduction())`.
+6. **Конфигурация `phpunit.xml`**: разделить `test` (полный набор) и `test-coverage`, проверить, что БД для тестов — `:memory:` SQLite (или отдельная test-БД).
+8. Создать папку `docs/` (уже создана) и зафиксировать в `README.md` ссылки на `AGENTS.md`, `docs/concept.md`, `docs/platform-plan.md`.
+9. `.env.example` — актуализировать под нужды платформы (mail, queue, payment, AI-провайдер — заглушки пока).
 
 **Что получаем на выходе:**
 - Проект собирается, тесты проходят, статанализ запускается, стиль проверяется Pint'ом.
@@ -59,7 +61,7 @@
 **Открытые вопросы этапа:**
 - ~~Выбор Pest vs PHPUnit~~ — закрыто: PHPUnit.
 - ~~Уровень строгости PHPStan~~ — закрыто: уровень 7.
-- CI-платформа (GitHub Actions / GitLab CI / локально).
+- ~~CI-платформа (GitHub Actions / GitLab CI / локально)~~ — закрыто: **не используем CI** (решение пользователя). Все проверки (`php artisan test`, `vendor/bin/pint --test`, `vendor/bin/phpstan analyse`) запускаются локально перед коммитом, см. `AGENTS.md §3.1` и §3.4. Если в будущем понадобится CI — отдельное решение, не блокирует старт.
 
 ---
 
@@ -84,7 +86,8 @@
    - `password_reset_tokens` (дефолт Laravel), `failed_jobs` и пр. — стандартно.
 3. **Фабрики:** `UserFactory` (с дефолтами, без `unverified()` state — он нам не нужен).
 4. **Кастомизация `CreateNewUser` (Action):**
-   - Внутри `DB::transaction` (правило №6) создаём `User` с `name`, `email`, `password` (хеш через `Hash::make`), `role = UserRole::User` (правило №5 — через enum, не строку).
+   - Внутри `DB::transaction` (правило №6) создаём `User` с `name`, `email`, `password` (хеш через `Hash::make`).
+   - Назначаем Spatie-роль `User` через `$user->assignRole(UserRole::User->value)` (правило №20). `UserRole` enum остаётся как справочник, **не** как колонка в `users` (миграции spatie/laravel-permission создают свои таблицы `roles` / `permissions` / `model_has_roles`).
    - Создаём связанные записи: `Subscription` со статусом `Free`/`Pending` (через сервис, подготовленный в Этапе 3; на этом этапе — простая заглушка, если нужно).
    - Возвращаем созданного `User`.
 5. **Routes:** `routes/web.php` подключает маршруты Fortify (`Fortify::routes()` уже делает это в `FortifyServiceProvider`). `routes/auth.php` **не создаём** — Fortify даёт `/login`, `/register`, `/forgot-password`, `/reset-password`, `/logout`, `/user/password` из коробки.
@@ -98,7 +101,7 @@
    - В `.env.example` — комментарий: «`MAIL_MAILER=log` для dev. На проде администратор указывает SMTP-параметры самостоятельно (`.env` / деплой-конфиг) — выбор провайдера и реквизиты не наша забота».
    - Шаблоны писем (Fortify): `resources/views/auth/emails/password-reset.blade.php` — простые Blade-шаблоны, **допустимы** (это email-вёрстка, не UI приложения).
 8. **Тесты (по правилу №15, Unit-max / Feature-smoke):**
-   - **Unit:** `CreateNewUser` (валидные данные / дубликат email / хеширование пароля / создан с правильным `UserRole` / транзакция откатывается при ошибке), `ResetUserPassword` (валидный токен / просроченный / использованный повторно), `UpdateUserPassword` (старый пароль неверный / новый совпадает со старым — запрет), enum `UserRole`. **Не тестируем** внутренности Fortify — это апстрим-пакет.
+   - **Unit:** `CreateNewUser` (валидные данные / дубликат email / хеширование пароля / создан с назначенной Spatie-ролью `User` / транзакция откатывается при ошибке), `ResetUserPassword` (валидный токен / просроченный / использованный повторно), `UpdateUserPassword` (старый пароль неверный / новый совпадает со старым — запрет), enum `UserRole` (метки, значения — для типизации, не для хранения). **Не тестируем** внутренности Fortify — это апстрим-пакет. **Не тестируем** внутренности spatie/laravel-permission — тоже апстрим-пакет; тестируем только **своё использование** (что `assignRole` вызван с правильным значением).
    - **Feature (smoke):** `POST /register` через Inertia-mock → 302 + пользователь создан; `POST /login` с верными кредами → 302 на `/dashboard`; `POST /login` с неверными → 302 обратно с `errors.email`; `POST /forgot-password` → 200 + email в `Mail::fake()`; `POST /reset-password` с токеном → 302 + пароль изменён; `POST /logout` → 302 на главную + пользователь разлогинен.
 9. **Seeders:** `DatabaseSeeder` создаёт 1 тестового пользователя (`user@example.com` / `password`) для локальной разработки.
 
@@ -132,38 +135,46 @@
 
 **Что делаем:**
 
-1. **Enum'ы:** `App\Enums\UserRole` с кейсами `User`, `Admin`. Cast на `users.role`. `App\Enums\AdminAuditAction` (стартовый набор: `UserRoleChanged`, `UserBlocked`, `UserUnblocked`; расширяется по мере появления операций).
-2. **Миграция:** добавить `users.role` (default `User`), `users.is_blocked` (default `false`). Создать таблицу `admin_audit_logs` (`id`, `admin_id` FK, `action` enum, `subject_type` string, `subject_id` bigint nullable, `meta` json, `ip` string nullable, `user_agent` string nullable, `created_at`) с индексами по `admin_id`, `action`, `subject_type+subject_id`, `created_at`.
-3. **Сидер:** `AdminSeeder` — создаёт админа из `ADMIN_EMAIL`/`ADMIN_PASSWORD` (или генерирует пароль и пишет в лог при первом запуске).
-4. **Только Policy** (по правилу №7 `AGENTS.md`):
+1. **Enum'ы:** `App\Enums\UserRole` с кейсами `User`, `Admin` (**справочник для типизации, не хранилище**). `App\Enums\AdminAuditAction` (стартовый набор: `UserRoleChanged`, `UserBlocked`, `UserUnblocked`; расширяется по мере появления операций).
+2. **Spatie RBAC (по правилу №20 `AGENTS.md`):**
+   - Пакет уже установлен в Этапе 0. Публикуем миграции и конфиг: `php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider"`.
+   - Прогоняем `php artisan migrate` — создаются таблицы `roles`, `permissions`, `model_has_permissions`, `model_has_roles`, `role_has_permissions`.
+   - `User` модель использует трейт `Spatie\Permission\Traits\HasRoles` (правило №20).
+   - `users.role` колонка **не** создаётся — это хранение в Spatie, не в `users`.
+3. **Миграция:** добавить только `users.is_blocked` (default `false`). Создать таблицу `admin_audit_logs` (`id`, `admin_id` FK, `action` enum, `subject_type` string, `subject_id` bigint nullable, `meta` json, `ip` string nullable, `user_agent` string nullable, `created_at`) с индексами по `admin_id`, `action`, `subject_type+subject_id`, `created_at`.
+4. **Сидер:**
+   - `RolesAndPermissionsSeeder` — создаёт Spatie-роли `User` и `Admin` через `Role::create(['name' => UserRole::User->value])` (значение из enum, не хардкод).
+   - `AdminSeeder` — создаёт пользователя-админа из `ADMIN_EMAIL`/`ADMIN_PASSWORD` (или генерирует пароль и пишет в лог), назначает роль `Admin` через `$user->assignRole(UserRole::Admin->value)`.
+5. **Только Policy** (по правилу №7 `AGENTS.md`):
    - На каждую доменную сущность (User, Course, Level, Lesson, TheoryTask, PracticeTask, Payment, AiPrompt, AdminAuditLog, UserLlmLimit) — своя `XxxPolicy` с методами `viewAny`, `view`, `create`, `update`, `delete`.
    - **Не используем** `Gate::define('admin', ...)` — это конфликтует с правилом №7.
-   - Middleware `EnsureUserHasRole::admin` (или `role:admin`) — **только как групповой gatekeeper** на уровне маршрутов (`/admin/*`). Бизнес-операции внутри — через Policy.
-5. **Routes:**
-   - Группа `/admin` с middleware `['auth', 'role:admin']`.
+   - **Не используем** прямое `$user->role === 'admin'` нигде в Policy — только `$user->hasRole(UserRole::Admin->value)` или `$user->can('manage users')` (правило №20).
+   - Middleware `role:admin` (Spatie) — **только как групповой gatekeeper** на уровне маршрутов (`/admin/*`). Бизнес-операции внутри — через Policy.
+6. **Routes:**
+   - Группа `/admin` с middleware `['auth', 'role:admin']` (`role` — это Spatie middleware из `Spatie\Permission\Middleware\RoleMiddleware`).
    - Подгруппы: `admin.users.*`, `admin.payments.*`, `admin.courses.*`, `admin.prompts.*`, `admin.audit-logs.*` — пока пустые контроллеры с `index()`-заглушками.
-6. **Контроллеры `App\Http\Controllers\Admin\...`:**
+7. **Контроллеры `App\Http\Controllers\Admin\...`:**
    - `DashboardController@index` — счётчики: пользователи всего, премиум сейчас, оплаты за месяц, курсы опубликованные. Получает данные через `AdminDashboardService` (Action), не из контроллера.
-   - `UserController` (index/show/update) — список с фильтрами, карточка, операции смены роли / блокировки / разблокировки. **Каждая операция пишет запись в `admin_audit_logs`** (через `AdminAuditLogger` сервис).
+   - `UserController` (index/show/update) — список с фильтрами, карточка, операции смены роли / блокировки / разблокировки. Смена роли — через `$user->syncRoles([UserRole::Admin->value])` или `removeRole/assignRole`. **Каждая операция пишет запись в `admin_audit_logs`** (через `AdminAuditLogger` сервис).
    - `PaymentController` (index/show) — список с фильтрами (заглушка, реальные данные — в Этапе 3).
    - `CourseController` (index/show) — заглушка, реальный CRUD — в Этапе 5+ «Курсы».
    - `PromptController` (index/edit) — заглушка, реальный CRUD — в Этапе 4 «ИИ».
    - `AuditLogController@index` — только чтение, фильтры по `admin_id`, `action`, периоду. Удаление/правка запрещены на уровне Policy.
-7. **FormRequest'ы:** `AdminUpdateUserRequest` (смена роли, блокировка), фильтры — через отдельные Request-классы или query-builder.
-8. **Layout:** `layouts/admin.blade.php` — **только host-шаблон для Inertia** (single root template с `<div id="app">`), как требует правило №18 `AGENTS.md`. Никаких Blade-страниц с формами, навигацией или бизнес-логикой внутри авторизованной админки. Контент админки (навигация, страницы) — Vue-компоненты.
-9. **Сервис аудита:** `App\Services\Admin\AdminAuditLogger` с методом `log(AdminAuditAction $action, Model $subject, array $meta = []): void` — пишет запись от имени текущего админа, выдёргивает `ip` и `user_agent` из `request()`. Используется во всех админ-Action'ах в одной `DB::transaction` с самой операцией.
-10. **Политики:** `UserPolicy@view/admin` (админ может смотреть/редактировать), `CoursePolicy`/`PromptPolicy` (заглушки, готовятся к наполнению), `AdminAuditLogPolicy@view` (только Admin).
-11. **Тесты:**
-    - **Unit:** `EnsureUserHasRole` middleware, `UserPolicy`/`AdminPolicy`, `AdminDashboardService` (формирование счётчиков), `AdminAuditLogger` (формирует корректную запись, мерджит meta, обрабатывает null-subject), валидация в `AdminUpdateUserRequest`, enum `UserRole` и `AdminAuditAction` (метки, цвета, сравнения).
+8. **FormRequest'ы:** `AdminUpdateUserRequest` (смена роли, блокировка), фильтры — через отдельные Request-классы или query-builder.
+9. **Layout:** `layouts/admin.blade.php` — **только host-шаблон для Inertia** (single root template с `<div id="app">`), как требует правило №18 `AGENTS.md`. Никаких Blade-страниц с формами, навигацией или бизнес-логикой внутри авторизованной админки. Контент админки (навигация, страницы) — Vue-компоненты.
+10. **Сервис аудита:** `App\Services\Admin\AdminAuditLogger` с методом `log(AdminAuditAction $action, Model $subject, array $meta = []): void` — пишет запись от имени текущего админа, выдёргивает `ip` и `user_agent` из `request()`. Используется во всех админ-Action'ах в одной `DB::transaction` с самой операцией.
+11. **Политики:** `UserPolicy@view/admin` (админ может смотреть/редактировать — внутри `view`/`update` методов проверка через `$user->hasRole(UserRole::Admin->value)`), `CoursePolicy`/`PromptPolicy` (заглушки, готовятся к наполнению), `AdminAuditLogPolicy@view` (только Admin).
+12. **Тесты:**
+    - **Unit:** `RolesAndPermissionsSeeder` (создаёт роли User и Admin), `AdminSeeder` (создаёт админа + назначает роль), `UserPolicy`/`AdminPolicy`, `AdminDashboardService` (формирование счётчиков), `AdminAuditLogger` (формирует корректную запись, мерджит meta, обрабатывает null-subject), валидация в `AdminUpdateUserRequest`, enum `UserRole` (метки, значения) и `AdminAuditAction` (метки, значения).
     - **Feature (smoke):** не-админ → `/admin` → 403; админ → `/admin` → 200; `/admin/users` → 200; попытка смены роли самого себя админом → 422/403; смена роли → запись в `admin_audit_logs` создана.
-12. **Seeders/factories:** `UserFactory` обновлена — состояния `admin()`, `blocked()`.
+13. **Seeders/factories:** `UserFactory` обновлена — состояния `admin()` (назначает роль Admin), `blocked()`. Поле `role` в `users` **не** существует.
 
 **Что получаем на выходе:**
-- Роли в коде через enum, проверка через Gate/Policy, никакого хардкода.
+- Роли через Spatie (`spatie/laravel-permission`), `UserRole` enum как справочник типизации (правило №20 `AGENTS.md`). Проверки — `$user->hasRole(UserRole::Admin->value)`, `$user->can('manage users')` или Policy. Никакого хардкода `auth()->user()->role === 'admin'`.
 - Каркас админки: layout + навигация + 6 разделов (часть — заглушки).
-- Middleware `role:admin` reusable для будущих маршрутов.
+- Spatie middleware `role:admin` reusable для будущих маршрутов.
 - **Audit-лог инфраструктура:** таблица `admin_audit_logs`, enum `AdminAuditAction`, `AdminAuditLogger` сервис, `AuditLogController@index` (только чтение). Готова к использованию во всех последующих этапах.
-- Seeded admin-аккаунт для локальной разработки.
+- Seeded admin-аккаунт + Spatie-роли для локальной разработки.
 - Покрытие Unit-тестами ролей/политик/middleware/audit-logger, Feature-smoke HTTP-границ.
 
 **Готовность:**
@@ -242,14 +253,22 @@
 
 1. **Enum'ы:** `AiProvider { Openai, Anthropic, Minimax, OpenaiCompatible, Dummy }`. (Enum `AiPromptScope` больше не нужен — структура хранения промптов изменилась, см. ниже.)
 2. **Хранение промптов (зафиксировано, см. `concept.md §9.2.4`):**
-   - **Общий системный промпт** — в таблице `settings` (key/value, `key = 'ai.global_system_prompt'`, `value` = longtext). Один на всю платформу, редактируется через админку. Никаких отдельных таблиц `ai_prompts` / `ai_course_prompts`.
-   - **Уточняющий промпт курса** — поле `courses.ai_course_prompt` (longtext, nullable). Свой для каждого курса, опционально дополняет общий.
-   - При отсутствии уточняющего — используется только общий. При наличии — `PromptResolver` склеивает `global + "\n\n" + course`.
+   - **Источник истины — таблица `ai_prompt_versions`.** Каждое изменение промпта = новая запись, история не перезаписывается.
+   - **`settings.ai.global_system_prompt`** и **`courses.ai_course_prompt`** — это **кэш** активной версии для быстрого чтения `PromptResolver`'ом. Источник истины — `ai_prompt_versions`, активная = `MAX(version_number) WHERE prompt_key = ?`.
+   - **Ключи в `ai_prompt_versions.prompt_key`:**
+     - `'ai.global_system_prompt'` — общий системный промпт.
+     - `course.{id}.ai_course_prompt` — уточняющий промпт курса.
    - **Никаких** таблиц `ai_prompts` / `ai_course_prompts` — проще, меньше сущностей, легче администрировать.
 3. **Миграции:**
-   - `settings`: `id`, `key` (string, unique), `value` (longtext), `updated_by` (FK users nullable), timestamps. Универсальная key/value-таблица для «глобальных настроек» платформы (промпт, лимиты по умолчанию и т.п.). Первый сидер создаёт запись `key = 'ai.global_system_prompt'` с дефолтным значением.
-   - `courses` (в Этапе 6) получает поле `ai_course_prompt` (longtext, nullable) — добавляется миграцией, когда Этап 6 начнётся.
+   - **`ai_prompt_versions`:** `id`, `prompt_key` (string), `body` (longtext), `version_number` (int, автоинкремент в пределах `prompt_key`), `comment` (text nullable), `created_by` (FK users), `meta` (json nullable), `created_at` (timestamp). Индексы по `(prompt_key, version_number)` (уникальный) и `created_at`.
+   - `settings`: `id`, `key` (string, unique), `value` (longtext), `updated_by` (FK users nullable), timestamps. Универсальная key/value-таблица для «глобальных настроек» платформы (промпт, лимиты по умолчанию и т.п.). Первый сидер создаёт запись `key = 'ai.global_system_prompt'` с дефолтным значением **и** первую запись в `ai_prompt_versions` с `version_number = 1`.
+   - `courses` (в Этапе 6) получает поле `ai_course_prompt` (longtext, nullable) — добавляется миграцией, когда Этап 6 начнётся. Создание курса с уточняющим промптом = создание первой версии в `ai_prompt_versions`.
 4. **Сервисный слой:**
+   - **`PromptVersionService`** (см. `concept.md §9.2.4`):
+     - `createNewVersion(string $promptKey, string $body, ?string $comment, User $author): AiPromptVersion` — в `DB::transaction`: вычисляет `MAX(version_number) WHERE prompt_key = ?`, создаёт новую запись с `+1`, обновляет «кэш» в `settings` / `courses`, пишет в `admin_audit_logs` (`action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`).
+     - `rollbackTo(int $versionId, ?string $comment, User $author): AiPromptVersion` — достаёт старую версию, вызывает `createNewVersion` с её `body` и `comment = 'Rollback to v{N}'`. Никаких «указателей на прошлое» — линейная история.
+     - `getHistory(string $promptKey, int $limit = 50): Collection` — все версии по ключу, newest first.
+   - `PromptResolver` (Action) — обновлён: читает активный текст из `settings` / `courses.ai_course_prompt` (кэш), не из `ai_prompt_versions` напрямую. Склеивает `global + "\n\n" + course` если оба есть.
    - Интерфейс `App\Services\Ai\LlmClient` с методом `complete(string $systemPrompt, string $userMessage, array $options = []): LlmResponse`. Биндится в DI как singleton по конфигу `config('ai.provider')`.
    - **Реализации на старте (whitelist):**
      - `OpenAiLlmClient` — OpenAI API (`gpt-4o-mini` и аналоги).
@@ -276,28 +295,31 @@
    - **Интеграция в `AiFeedbackService`/`AiTaskGeneratorService`:** каждый вызов обёрнут в `AiLimitGuard::check()` → `LlmClient::complete()` → `AiTokenUsageService::recordUsage()` (по фактическим потраченным токенам, если провайдер отдаёт, иначе — оценка `strlen`).
    - **Unit-покрытие:** `AiLimitGuard` (лимит не исчерпан / глобальный исчерпан / пользовательский исчерпан / ручное добавление через `extra_tokens`), `AiTokenUsageService` (агрегация за день, корректная запись), `AiFeedbackService`/`AiTaskGeneratorService` (проверка лимита перед вызовом, запись после).
 7. **Контроллеры админки (только для промптов и LLM-лимитов):**
-   - `Admin\GlobalPromptController@edit`/`update` — редактирование **общего** системного промпта (через key/value в `settings` table). Через `FormRequest` (`AdminUpdateGlobalPromptRequest` с валидацией `body` не пустой).
-   - `Admin\CoursePromptController@edit`/`update` — редактирование **уточняющего** промпта курса (поле `courses.ai_course_prompt`, через `Admin\CourseController` или выделенный контроллер). Через `FormRequest`. Операция попадает в audit-log (наследуется от логирования редактирования курса, см. `Admin\CourseController`).
+   - `Admin\GlobalPromptController@edit`/`update` — редактирование **общего** системного промпта. Через `FormRequest` (`AdminUpdateGlobalPromptRequest` с валидацией `body` не пустой, `comment` опционально). `update` вызывает `PromptVersionService::createNewVersion('ai.global_system_prompt', $body, $comment, $user)`, обновляющий кэш в `settings` и пишущий audit-log. **Не пишет напрямую в `settings`** — только через сервис.
+   - `Admin\CoursePromptController@edit`/`update` — редактирование **уточняющего** промпта курса (поле `courses.ai_course_prompt`). Через `FormRequest` (`AdminUpdateCoursePromptRequest` с валидацией `body` не пустой, `comment` опционально). `update` вызывает `PromptVersionService::createNewVersion('course.{id}.ai_course_prompt', ...)`. Audit-log: `action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`.
+   - `Admin\PromptHistoryController@index` — **просмотр истории версий**. URL: `/admin/prompts/history?key=ai.global_system_prompt` или `?key=course.{id}.ai_course_prompt`. Через `PromptVersionService::getHistory()`. UI: список версий (newest first), каждая с автором, датой, комментарием, кнопками «Сделать активной» (= `rollbackTo`) и «Посмотреть diff» (на старте — просто показать обе версии текстом рядом, plain-text, без fancy-инструмента).
    - `Admin\UserLlmLimitController@edit`/`update` (route `admin.users.llm-limit`, nested под `users/{user}/llm-limit`) — корректировка LLM-лимита пользователя. Через `FormRequest` (`AdminUpdateUserLlmLimitRequest` с валидацией `extra_tokens` int >= 0). Операция пишет запись в `admin_audit_logs` с `action = UserLlmLimitAdjusted` и `meta = { old_extra, new_extra }`.
    - **UI для выбора провайдера/ключа — не делаем.** Это инфраструктурная настройка, не бизнес-сущность.
 8. **Политики:** `CoursePolicy@update` (включает редактирование `ai_course_prompt`), `UserPolicy@updateLlmLimit` — только Admin. Отдельная `AiPromptPolicy` не нужна — промпты редактируются как часть курса / настройки.
-9. **Routes:** `admin.prompts.*`, `admin.users.llm-limit.*` под middleware `['auth', 'role:admin']`.
+9. **Routes:** `admin.prompts.*` (включая `admin.prompts.history` для `PromptHistoryController`), `admin.users.llm-limit.*`, всё под middleware `['auth', 'role:admin']`.
 10. **Тесты:**
-   - **Unit:** `PromptResolver` (Global-only / Global+Course / Course-only / empty Global fallback / склейка через `\n\n`), `AiFeedbackService` (формирует запрос к LLM с правильным промптом, проверяет лимит, записывает usage), `AiTaskGeneratorService`, `AiLimitGuard` (все ветки: лимит не исчерпан / глобальный исчерпан / пользовательский исчерпан / ручное добавление через `extra_tokens`), `AiTokenUsageService` (агрегация за день), `DummyLlmClient`, каждый реальный клиент (мокается внешний HTTP), валидация конфига провайдера (формат URL, SSRF-блокировка), enum, `AiProvider`/`AiTokenUsageAction` (метки, сравнения), `AdminUpdateUserLlmLimitAction` (корректировка лимита + запись audit-log), `Setting` (key/value) + `SettingRepository` (чтение `ai.global_system_prompt`).
-   - **Feature (smoke):** админ редактирует Global-промпт → запись в `settings` с ключом `ai.global_system_prompt`, видна на `/admin/global-prompt`; админ редактирует уточняющий промпт курса → запись в `courses.ai_course_prompt`; `PromptResolver` дёргается из теста через DI и возвращает ожидаемую склейку; админ корректирует LLM-лимит пользователя → запись в `admin_audit_logs` с правильным `meta`.
+   - **Unit:** `PromptResolver` (Global-only / Global+Course / Course-only / empty Global fallback / склейка через `\n\n`), `PromptVersionService` (создание первой версии / инкремент `version_number` / rollback через создание новой версии / обновление кэша в `settings` или `courses.ai_course_prompt` / запись в `admin_audit_logs` / работа в `DB::transaction` — откат при ошибке), `AiFeedbackService` (формирует запрос к LLM с правильным промптом, проверяет лимит, записывает usage), `AiTaskGeneratorService`, `AiLimitGuard` (все ветки: лимит не исчерпан / глобальный исчерпан / пользовательский исчерпан / ручное добавление через `extra_tokens`), `AiTokenUsageService` (агрегация за день), `DummyLlmClient`, каждый реальный клиент (мокается внешний HTTP), валидация конфига провайдера (формат URL, SSRF-блокировка), enum, `AiProvider`/`AiTokenUsageAction` (метки, сравнения), `AdminUpdateUserLlmLimitAction` (корректировка лимита + запись audit-log), `Setting` (key/value) + `SettingRepository` (чтение `ai.global_system_prompt`).
+   - **Feature (smoke):** админ редактирует Global-промпт → новая запись в `ai_prompt_versions` + обновлённый кэш в `settings`, видна на `/admin/global-prompt` и `/admin/prompts/history?key=ai.global_system_prompt`; админ редактирует уточняющий промпт курса → новая запись в `ai_prompt_versions` для `course.{id}.ai_course_prompt` + обновлённое поле `courses.ai_course_prompt`; админ делает rollback на старую версию → новая запись с `comment = 'Rollback to v{N}'`; `PromptResolver` дёргается из теста через DI и возвращает ожидаемую склейку; админ корректирует LLM-лимит пользователя → запись в `admin_audit_logs` с правильным `meta`.
 11. **Логирование:** все обращения к LLM (провайдер, model, длина запроса/ответа, длительность, ошибки) — через `Log::info('ai.llm_call', [...])` для последующего анализа расходов. **Полный текст промпта/ответа в production-логи не пишем** (риск утечки + раздувание storage). В dev-окружении допустимо через флаг `config('ai.log_full_prompts', false)`.
 
 **Что получаем на выходе:**
 - Абстракция `LlmClient` + 4 whitelist-реализации + `DummyLlmClient` для dev/тестов.
+- **Версионирование промптов:** таблица `ai_prompt_versions` (источник истины) + `PromptVersionService` (`createNewVersion`, `rollbackTo`, `getHistory`). UI истории в `/admin/prompts/history?key=...`. `settings` / `courses.ai_course_prompt` — кэш активной версии.
 - `PromptResolver` с предсказуемой логикой склейки.
 - `AiFeedbackService` и `AiTaskGeneratorService` готовы к подключению из практики, с проверкой лимитов и записью usage.
 - **Лимиты токенов:** глобальный + per-user, из конфига, с возможностью ручной корректировки админом (audit-log).
-- Админка для редактирования промптов и LLM-лимитов пользователей.
+- Админка для редактирования промптов (с историей) и LLM-лимитов пользователей.
 - Конфиг провайдера через `.env` с валидацией на старте.
 - Все вызовы логируются (метаданные).
 
 **Готовность:**
 - Admin может редактировать Global-промпт и видеть изменения.
+- **Версионирование:** каждое изменение создаёт новую запись в `ai_prompt_versions`; история доступна в `/admin/prompts/history`; rollback создаёт новую версию со старым текстом; кэш в `settings` / `courses.ai_course_prompt` всегда согласована с `MAX(version_number)`.
 - `PromptResolver` корректно склеивает Global + Course.
 - `DummyLlmClient` используется в тестах, ответы детерминированы.
 - **Лимиты:** пользователь с исчерпанным лимитом получает `HTTP 429`; админ через `/admin/users/{user}/llm-limit` может добавить `extra_tokens` (запись в `admin_audit_logs`).
@@ -308,7 +330,7 @@
 - ~~Конкретный LLM-провайдер~~ — закрыто: whitelist (OpenAI, Anthropic, MiniMax, OpenAI-compatible) + выбор через `AI_PROVIDER` в `.env`. Single-tenant.
 - ~~Лимиты на расход токенов/бюджет~~ — закрыто: глобальный + per-user лимит в `config/ai.php`, ручная корректировка админом через `/admin/users/{user}/llm-limit` (см. `concept.md §2.3`).
 - ~~Хранение промптов: одна таблица с `scope` или две отдельные (`ai_prompts` + `ai_course_prompts`)~~ — закрыто: **общий в `settings` (key/value)**, **уточняющий как поле `courses.ai_course_prompt`**. Никаких таблиц `ai_prompts` / `ai_course_prompts`. Подробности в `concept.md §9.2.4` и в пункте 2 этого этапа.
-- Версионирование промптов (см. `concept.md §9.2.4`).
+- ~~Версионирование промптов (см. `concept.md §9.2.4`)~~ — закрыто: **вариант A, полная история в БД**, таблица `ai_prompt_versions` (источник истины), `settings` / `courses.ai_course_prompt` — кэш активной версии, активная = `MAX(version_number) WHERE prompt_key = ?`. Откат = создание новой версии со старым текстом. UI истории в `/admin/prompts/history?key=...`. Подробности в `concept.md §9.2.4` и в пункте 2 этого этапа.
 - Тестовый запуск промпта из админки (UI playground) — со старта или позже.
 
 ---

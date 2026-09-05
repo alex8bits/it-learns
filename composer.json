@@ -10,11 +10,15 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "laravel/fortify": "^1.39",
         "laravel/framework": "^13.17",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "spatie/laravel-permission": "^8.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
+        "larastan/larastan": "^3.11",
+        "laravel/boost": "^2.7",
         "laravel/pail": "^1.2.5",
         "laravel/pao": "^1.0.6",
         "laravel/pint": "^1.27",
@@ -48,8 +52,15 @@
             "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" --names='server,queue,vite'"
         ],
         "test": [
-            "@php artisan config:clear --ansi @no_additional_args",
-            "@php artisan test"
+            "@php artisan config:clear",
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "docker compose --profile testing up -d db-testing",
+            "@php -r \"for(\\$i=0;\\$i<60;\\$i++){exec('docker compose exec -T db-testing mysqladmin ping -h 127.0.0.1 -u root 2>NUL',\\$o,\\$r);if(\\$r===0){exit(0);}}fwrite(STDERR,'db-testing не стартовал за 30 сек\\n');exit(1);\"",
+            "@php artisan migrate:fresh --env=testing --force",
+            "vendor/bin/pint --test",
+            "vendor/bin/phpstan analyse --no-progress",
+            "@php artisan test",
+            "docker compose stop db-testing"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
