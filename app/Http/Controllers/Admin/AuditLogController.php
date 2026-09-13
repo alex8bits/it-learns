@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\AdminAuditLogIndexRequest;
 use App\Models\AdminAuditLog;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -22,26 +22,28 @@ class AuditLogController extends Controller
      * disables `updated_at` (`$timestamps = false`), so the default
      * `latest()` would fall back to the primary key.
      */
-    public function index(Request $request): Response
+    public function index(AdminAuditLogIndexRequest $request): Response
     {
         $this->authorize('viewAny', AdminAuditLog::class);
+
+        $filters = $request->validated();
 
         $logs = AdminAuditLog::query()
             ->with('admin')
             ->when(
-                $request->query('action'),
+                $filters['action'] ?? null,
                 fn ($query, $action) => $query->where('action', $action),
             )
             ->when(
-                $request->query('admin_id'),
+                $filters['admin_id'] ?? null,
                 fn ($query, $adminId) => $query->where('admin_id', $adminId),
             )
             ->when(
-                $request->query('date_from'),
+                $filters['date_from'] ?? null,
                 fn ($query, $date) => $query->where('created_at', '>=', $date),
             )
             ->when(
-                $request->query('date_to'),
+                $filters['date_to'] ?? null,
                 fn ($query, $date) => $query->where('created_at', '<=', $date),
             )
             ->latest('created_at')
@@ -50,7 +52,7 @@ class AuditLogController extends Controller
 
         return Inertia::render('Admin/AuditLogs/Index', [
             'logs' => $logs,
-            'filters' => $request->only(['action', 'admin_id', 'date_from', 'date_to']),
+            'filters' => $filters,
         ]);
     }
 

@@ -8,9 +8,9 @@ use App\Actions\Admin\ChangeUserRole;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminUpdateUserRequest;
+use App\Http\Requests\Admin\AdminUserIndexRequest;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -21,19 +21,21 @@ class UserController extends Controller
      * the Spatie `roles` relation so the Vue table can render the role
      * label without an N+1 round trip per row.
      */
-    public function index(Request $request): Response
+    public function index(AdminUserIndexRequest $request): Response
     {
         $this->authorize('viewAny', User::class);
+
+        $filters = $request->validated();
 
         $users = User::query()
             ->with('roles')
             ->when(
-                $email = $request->query('email'),
-                fn ($query, $needle) => is_string($needle) ? $query->where('email', 'like', "%{$needle}%") : $query,
+                $filters['email'] ?? null,
+                fn ($query, $needle) => $query->where('email', 'like', "%{$needle}%"),
             )
             ->when(
-                $request->query('role'),
-                fn ($query, $role) => is_string($role) ? $query->role($role) : $query,
+                $filters['role'] ?? null,
+                fn ($query, $role) => $query->role($role),
             )
             ->orderBy('id', 'desc')
             ->paginate(50)
@@ -41,7 +43,7 @@ class UserController extends Controller
 
         return Inertia::render('Admin/Users/Index', [
             'users' => $users,
-            'filters' => $request->only(['email', 'role']),
+            'filters' => $filters,
         ]);
     }
 

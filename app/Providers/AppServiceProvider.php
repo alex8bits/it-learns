@@ -38,13 +38,14 @@ class AppServiceProvider extends ServiceProvider
 
     /**
      * Configure the rate limiters for the application.
+     *
+     * The `login` limiter is intentionally not defined here: the effective
+     * definition (5/min) lives in FortifyServiceProvider, and a duplicate
+     * in this provider would be dead code — FortifyServiceProvider boots
+     * later and overwrites it.
      */
     private function configureRateLimiters(): void
     {
-        RateLimiter::for('login', function (Request $request) {
-            return Limit::perMinute(10)->by($request->input('email', '').'|'.$request->ip());
-        });
-
         RateLimiter::for('register', function (Request $request) {
             return Limit::perMinute(5)->by($request->ip());
         });
