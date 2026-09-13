@@ -55,8 +55,7 @@
         "test": [
             "@php artisan config:clear",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
-            "docker compose --profile testing up -d db-testing",
-            "@php -r \"for(\\$i=0;\\$i<60;\\$i++){exec('docker compose exec -T db-testing mysqladmin ping -h 127.0.0.1 -u root 2>NUL',\\$o,\\$r);if(\\$r===0){exit(0);}}fwrite(STDERR,'db-testing не стартовал за 30 сек\\n');exit(1);\"",
+            "docker compose --profile testing up -d --wait --wait-timeout 90 db-testing",
             "@php artisan migrate:fresh --env=testing --force",
             "vendor/bin/pint --test",
             "vendor/bin/phpstan analyse --no-progress",

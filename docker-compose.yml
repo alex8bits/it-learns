@@ -108,7 +108,7 @@ services:
         networks:
             - itlearns
         healthcheck:
-            test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root"]
+            test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u", "root"]
             interval: 3s
             timeout: 3s
             retries: 20
