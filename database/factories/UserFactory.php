@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -36,12 +37,24 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the model's email address should be unverified.
+     * Indicate that the user has the Admin role.
      */
-    public function unverified(): static
+    public function admin(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'email_verified_at' => null,
-        ]);
+        return $this->afterCreating(function (User $user): void {
+            $user->assignRole(UserRole::Admin->value);
+        });
+    }
+
+    /**
+     * Indicate that the user is blocked. Bypasses the missing `is_blocked` from
+     * the model's #[Fillable] by writing the attribute directly + save().
+     */
+    public function blocked(): static
+    {
+        return $this->afterCreating(function (User $user): void {
+            $user->is_blocked = true;
+            $user->save();
+        });
     }
 }

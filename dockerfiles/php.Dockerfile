@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     libjpeg62-turbo-dev \
     libpng-dev \
     libonig-dev \
+    libsqlite3-dev \
     unzip \
     zip \
     git \
