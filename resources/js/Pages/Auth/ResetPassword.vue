@@ -3,6 +3,10 @@
         <form @submit.prevent="submit">
             <h1 class="text-2xl font-semibold text-gray-900 mb-4">Новый пароль</h1>
 
+            <div v-if="status" class="mb-3 p-2 bg-green-50 text-green-700 text-sm rounded">
+                {{ status }}
+            </div>
+
             <Input
                 v-model="form.email"
                 label="Email"
@@ -42,12 +46,17 @@
 import Button from '../../Components/Button.vue';
 import Input from '../../Components/Input.vue';
 import GuestLayout from '../../Layouts/GuestLayout.vue';
-import { useForm } from '@inertiajs/vue3';
+import { useForm, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 
 const props = defineProps({
     token: { type: String, required: true },
     email: { type: String, default: '' },
 });
+
+// Flash status (if the backend ever sends one) arrives via shared props.
+const page = usePage();
+const status = computed(() => page.props.status);
 
 // Reset token travels inside the form data; Inertia submits it in the POST body.
 const form = useForm({
