@@ -1,19 +1,37 @@
 <script setup>
+import Pagination from '../../../Components/Pagination.vue';
 import AdminLayout from '../../../Layouts/AdminLayout.vue';
 import { Link, router } from '@inertiajs/vue3';
+import { onBeforeUnmount, ref } from 'vue';
 
 const props = defineProps({
     users: { type: Object, required: true },
     filters: { type: Object, default: () => ({}) },
 });
 
-const search = () => {
+// Local input state: props.filters must not be mutated via v-model.
+const email = ref(props.filters.email ?? '');
+
+let searchTimer = null;
+
+const applySearch = () => {
     router.get(
         '/admin/users',
-        { email: props.filters.email || undefined },
+        {
+            email: email.value.trim() || undefined,
+            role: props.filters.role || undefined,
+        },
         { preserveState: true, replace: true },
     );
 };
+
+// Debounce the search so we do not hit the server on every keystroke.
+const onSearchInput = () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(applySearch, 350);
+};
+
+onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
 <template>
@@ -22,11 +40,11 @@ const search = () => {
         <div class="bg-white rounded-lg border border-gray-200">
             <div class="p-4 border-b border-gray-200">
                 <input
-                    v-model="filters.email"
+                    v-model="email"
                     type="search"
                     placeholder="Поиск по email"
                     class="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    @input="search"
+                    @input="onSearchInput"
                 />
             </div>
             <table class="w-full">
@@ -80,6 +98,7 @@ const search = () => {
                     </tr>
                 </tbody>
             </table>
+            <Pagination :paginator="users" />
         </div>
     </AdminLayout>
 </template>

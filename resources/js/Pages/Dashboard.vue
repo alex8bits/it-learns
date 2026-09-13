@@ -3,12 +3,7 @@
         <header class="bg-white shadow">
             <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
                 <h1 class="text-xl font-semibold text-gray-900">Дашборд</h1>
-                <form method="POST" action="/logout">
-                    <input type="hidden" name="_token" :value="csrf">
-                    <button type="submit" class="px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded">
-                        Выйти
-                    </button>
-                </form>
+                <Button variant="secondary" type="button" @click="logout">Выйти</Button>
             </div>
         </header>
         <main class="max-w-7xl mx-auto px-4 py-6">
@@ -25,10 +20,12 @@
 </template>
 
 <script setup>
-import { Link } from '@inertiajs/vue3';
+import Button from '../Components/Button.vue';
+import { Link, router } from '@inertiajs/vue3';
 
-const props = defineProps({
+defineProps({
     user: { type: Object, required: true },
-    csrf: { type: String, required: true },
 });
+
+const logout = () => router.post('/logout');
 </script>

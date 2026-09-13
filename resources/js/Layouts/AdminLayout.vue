@@ -22,7 +22,7 @@ const isActive = (item) => item.match(page.url);
         <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
             <div class="px-6 py-4 border-b border-gray-200">
                 <h1 class="text-lg font-semibold text-gray-900">Админ-панель</h1>
-                <p class="text-sm text-gray-500 mt-1">{{ user.name }}</p>
+                <p class="text-sm text-gray-500 mt-1">{{ user?.name }}</p>
             </div>
             <nav class="flex-1 px-2 py-4 space-y-1">
                 <Link

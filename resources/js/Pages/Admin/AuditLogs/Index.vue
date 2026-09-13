@@ -1,4 +1,5 @@
 <script setup>
+import Pagination from '../../../Components/Pagination.vue';
 import AdminLayout from '../../../Layouts/AdminLayout.vue';
 import { router } from '@inertiajs/vue3';
 
@@ -74,6 +75,7 @@ const applyFilter = (key, value) => {
                     </tr>
                 </tbody>
             </table>
+            <Pagination :paginator="logs" />
         </div>
     </AdminLayout>
 </template>
