@@ -6,15 +6,12 @@ namespace Tests\Unit\Actions\Fortify;
 
 use App\Actions\Fortify\ResetUserPassword;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ResetUserPasswordTest extends TestCase
 {
-    use RefreshDatabase;
-
     public function test_it_resets_password_with_valid_token(): void
     {
         $user = User::factory()->create();

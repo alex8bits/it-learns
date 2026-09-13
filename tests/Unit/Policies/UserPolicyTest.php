@@ -8,6 +8,8 @@ use App\Enums\UserRole;
 use App\Models\User;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -55,73 +57,62 @@ class UserPolicyTest extends TestCase
         $this->assertFalse($this->policy->view($this->user, $this->admin));
     }
 
-    public function test_update_allows_admin_for_other_user(): void
+    #[DataProvider('selfExclusionProvider')]
+    public function test_self_exclusion_matrix(string $method, string $actorKind, string $targetKind, bool $expected): void
     {
-        $this->assertTrue($this->policy->update($this->otherAdmin, $this->user));
-    }
+        $actor = $actorKind === 'admin' ? $this->otherAdmin : $this->user;
 
-    public function test_update_denies_admin_for_self(): void
-    {
-        $this->assertFalse($this->policy->update($this->admin, $this->admin));
-    }
+        $target = match ($targetKind) {
+            'self' => $actor,
+            'other' => $actorKind === 'admin' ? $this->user : $this->admin,
+            default => throw new InvalidArgumentException("Unknown target kind [{$targetKind}]"),
+        };
 
-    public function test_update_denies_user(): void
-    {
-        $this->assertFalse($this->policy->update($this->user, $this->admin));
-    }
-
-    public function test_change_role_allows_admin_for_other_user(): void
-    {
-        $this->assertTrue($this->policy->changeRole($this->admin, $this->user));
-    }
-
-    public function test_change_role_denies_self(): void
-    {
-        $this->assertFalse($this->policy->changeRole($this->admin, $this->admin));
-    }
-
-    public function test_change_role_denies_user(): void
-    {
-        $this->assertFalse($this->policy->changeRole($this->user, $this->user));
-    }
-
-    public function test_block_allows_admin_for_other_user(): void
-    {
-        $this->assertTrue($this->policy->block($this->otherAdmin, $this->user));
-    }
-
-    public function test_block_denies_self(): void
-    {
-        $this->assertFalse($this->policy->block($this->admin, $this->admin));
-    }
-
-    public function test_block_denies_user(): void
-    {
-        $this->assertFalse($this->policy->block($this->user, $this->admin));
-    }
-
-    public function test_unblock_allows_admin_for_other_user(): void
-    {
-        $this->assertTrue($this->policy->unblock($this->otherAdmin, $this->user));
-    }
-
-    public function test_unblock_denies_self(): void
-    {
-        $this->assertFalse($this->policy->unblock($this->admin, $this->admin));
-    }
-
-    public function test_delete_allows_admin_for_other_user(): void
-    {
-        $this->assertTrue($this->policy->delete($this->otherAdmin, $this->user));
-    }
-
-    public function test_delete_denies_self(): void
-    {
-        $this->assertFalse($this->policy->delete($this->admin, $this->admin));
+        $this->assertSame($expected, $this->callSelfExclusionMethod($method, $actor, $target));
     }
 
     public function test_gate_resolves_user_policy_by_convention(): void
     {
         $this->assertInstanceOf(UserPolicy::class, Gate::getPolicyFor(User::class));
+    }
+
+    /**
+     * Every "admin except self" ability shares the same authorization matrix:
+     * admin + other user is allowed; admin targeting themselves and any
+     * non-admin actor are denied.
+     *
+     * @return array<string, array{0: string, 1: string, 2: string, 3: bool}>
+     */
+    public static function selfExclusionProvider(): array
+    {
+        return [
+            'update allows admin for other user' => ['update', 'admin', 'other', true],
+            'update denies admin for self' => ['update', 'admin', 'self', false],
+            'update denies regular user' => ['update', 'user', 'other', false],
+            'delete allows admin for other user' => ['delete', 'admin', 'other', true],
+            'delete denies admin for self' => ['delete', 'admin', 'self', false],
+            'delete denies regular user' => ['delete', 'user', 'other', false],
+            'changeRole allows admin for other user' => ['changeRole', 'admin', 'other', true],
+            'changeRole denies admin for self' => ['changeRole', 'admin', 'self', false],
+            'changeRole denies regular user' => ['changeRole', 'user', 'other', false],
+            'block allows admin for other user' => ['block', 'admin', 'other', true],
+            'block denies admin for self' => ['block', 'admin', 'self', false],
+            'block denies regular user' => ['block', 'user', 'other', false],
+            'unblock allows admin for other user' => ['unblock', 'admin', 'other', true],
+            'unblock denies admin for self' => ['unblock', 'admin', 'self', false],
+            'unblock denies regular user' => ['unblock', 'user', 'other', false],
+        ];
+    }
+
+    private function callSelfExclusionMethod(string $method, User $actor, User $target): bool
+    {
+        return match ($method) {
+            'update' => $this->policy->update($actor, $target),
+            'delete' => $this->policy->delete($actor, $target),
+            'changeRole' => $this->policy->changeRole($actor, $target),
+            'block' => $this->policy->block($actor, $target),
+            'unblock' => $this->policy->unblock($actor, $target),
+            default => throw new InvalidArgumentException("Unknown method [{$method}]"),
+        };
     }
 }

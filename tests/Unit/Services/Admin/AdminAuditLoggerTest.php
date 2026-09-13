@@ -9,14 +9,11 @@ use App\Enums\UserRole;
 use App\Models\AdminAuditLog;
 use App\Models\User;
 use App\Services\Admin\AdminAuditLogger;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class AdminAuditLoggerTest extends TestCase
 {
-    use RefreshDatabase;
-
     private User $admin;
 
     protected function setUp(): void

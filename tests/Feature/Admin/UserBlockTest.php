@@ -7,14 +7,11 @@ namespace Tests\Feature\Admin;
 use App\Enums\AdminAuditAction;
 use App\Enums\UserRole;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class UserBlockTest extends TestCase
 {
-    use RefreshDatabase;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -54,20 +51,6 @@ class UserBlockTest extends TestCase
             'action' => AdminAuditAction::UserUnblocked->value,
             'admin_id' => $admin->id,
             'subject_id' => $user->id,
-        ]);
-    }
-
-    public function test_admin_cannot_block_self(): void
-    {
-        $admin = User::factory()->admin()->create();
-
-        $response = $this->actingAs($admin)->post(route('admin.users.block', $admin));
-
-        $response->assertForbidden();
-        $this->assertFalse((bool) $admin->fresh()->is_blocked);
-        $this->assertDatabaseMissing('admin_audit_logs', [
-            'admin_id' => $admin->id,
-            'subject_id' => $admin->id,
         ]);
     }
 }

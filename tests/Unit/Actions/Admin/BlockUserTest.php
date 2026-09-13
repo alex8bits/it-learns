@@ -9,7 +9,6 @@ use App\Enums\AdminAuditAction;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Services\Admin\AdminAuditLogger;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use RuntimeException;
 use Spatie\Permission\Models\Role;
@@ -17,8 +16,6 @@ use Tests\TestCase;
 
 class BlockUserTest extends TestCase
 {
-    use RefreshDatabase;
-
     protected function setUp(): void
     {
         parent::setUp();

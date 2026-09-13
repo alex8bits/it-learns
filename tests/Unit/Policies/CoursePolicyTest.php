@@ -7,6 +7,8 @@ namespace Tests\Unit\Policies;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Policies\CoursePolicy;
+use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -30,78 +32,51 @@ class CoursePolicyTest extends TestCase
         $this->user = User::factory()->create();
     }
 
-    public function test_view_any_denies_admin(): void
+    #[DataProvider('abilityProvider')]
+    public function test_all_abilities_deny_admin(string $ability): void
     {
-        $this->assertFalse($this->policy->viewAny($this->admin));
+        $this->assertFalse($this->callAbility($ability, $this->admin));
     }
 
-    public function test_view_any_denies_user(): void
+    #[DataProvider('abilityProvider')]
+    public function test_all_abilities_deny_user(string $ability): void
     {
-        $this->assertFalse($this->policy->viewAny($this->user));
+        $this->assertFalse($this->callAbility($ability, $this->user));
     }
 
-    public function test_view_any_denies_guest(): void
+    #[DataProvider('abilityProvider')]
+    public function test_all_abilities_deny_guest(string $ability): void
     {
-        $this->assertFalse($this->policy->viewAny(null));
+        $this->assertFalse($this->callAbility($ability, null));
     }
 
-    public function test_view_denies_admin(): void
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function abilityProvider(): array
     {
-        $this->assertFalse($this->policy->view($this->admin, null));
+        return [
+            'viewAny' => ['viewAny'],
+            'view' => ['view'],
+            'create' => ['create'],
+            'update' => ['update'],
+            'delete' => ['delete'],
+        ];
     }
 
-    public function test_view_denies_user(): void
+    /**
+     * Stub policies take `mixed $model` for not-yet-existing models, so the
+     * model argument is always null regardless of the ability.
+     */
+    private function callAbility(string $ability, ?User $actor): bool
     {
-        $this->assertFalse($this->policy->view($this->user, null));
-    }
-
-    public function test_view_denies_guest(): void
-    {
-        $this->assertFalse($this->policy->view(null, null));
-    }
-
-    public function test_create_denies_admin(): void
-    {
-        $this->assertFalse($this->policy->create($this->admin));
-    }
-
-    public function test_create_denies_user(): void
-    {
-        $this->assertFalse($this->policy->create($this->user));
-    }
-
-    public function test_create_denies_guest(): void
-    {
-        $this->assertFalse($this->policy->create(null));
-    }
-
-    public function test_update_denies_admin(): void
-    {
-        $this->assertFalse($this->policy->update($this->admin, null));
-    }
-
-    public function test_update_denies_user(): void
-    {
-        $this->assertFalse($this->policy->update($this->user, null));
-    }
-
-    public function test_update_denies_guest(): void
-    {
-        $this->assertFalse($this->policy->update(null, null));
-    }
-
-    public function test_delete_denies_admin(): void
-    {
-        $this->assertFalse($this->policy->delete($this->admin, null));
-    }
-
-    public function test_delete_denies_user(): void
-    {
-        $this->assertFalse($this->policy->delete($this->user, null));
-    }
-
-    public function test_delete_denies_guest(): void
-    {
-        $this->assertFalse($this->policy->delete(null, null));
+        return match ($ability) {
+            'viewAny' => $this->policy->viewAny($actor),
+            'view' => $this->policy->view($actor, null),
+            'create' => $this->policy->create($actor),
+            'update' => $this->policy->update($actor, null),
+            'delete' => $this->policy->delete($actor, null),
+            default => throw new InvalidArgumentException("Unknown ability [{$ability}]"),
+        };
     }
 }

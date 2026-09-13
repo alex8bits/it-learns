@@ -6,15 +6,12 @@ namespace Tests\Unit\Actions\Fortify;
 
 use App\Actions\Fortify\UpdateUserPassword;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class UpdateUserPasswordTest extends TestCase
 {
-    use RefreshDatabase;
-
     public function test_it_updates_password_with_correct_current_password(): void
     {
         $user = User::factory()->create();

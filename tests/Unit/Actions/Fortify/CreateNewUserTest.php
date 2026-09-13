@@ -6,7 +6,6 @@ namespace Tests\Unit\Actions\Fortify;
 
 use App\Enums\UserRole;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
@@ -15,8 +14,6 @@ use Tests\TestCase;
 
 class CreateNewUserTest extends TestCase
 {
-    use RefreshDatabase;
-
     public function test_it_creates_user_with_hashed_password_and_assigns_user_role(): void
     {
         $action = app(CreatesNewUsers::class);

@@ -7,14 +7,11 @@ namespace Tests\Unit\Services\Admin;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Services\Admin\AdminDashboardService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class AdminDashboardServiceTest extends TestCase
 {
-    use RefreshDatabase;
-
     protected function setUp(): void
     {
         parent::setUp();

@@ -6,13 +6,10 @@ namespace Tests\Feature\Auth;
 
 use App\Enums\UserRole;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class RegistrationTest extends TestCase
 {
-    use RefreshDatabase;
-
     public function test_user_can_register(): void
     {
         $response = $this->post('/register', [
