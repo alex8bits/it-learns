@@ -19,7 +19,9 @@ class UserController extends Controller
     /**
      * Paginated user list with optional email / role filters. Eager-loads
      * the Spatie `roles` relation so the Vue table can render the role
-     * label without an N+1 round trip per row.
+     * label without an N+1 round trip per row. The email search escapes
+     * LIKE wildcards so user input is matched literally (see
+     * `User::scopeSearchByEmail`).
      */
     public function index(AdminUserIndexRequest $request): Response
     {
@@ -29,10 +31,7 @@ class UserController extends Controller
 
         $users = User::query()
             ->with('roles')
-            ->when(
-                $filters['email'] ?? null,
-                fn ($query, $needle) => $query->where('email', 'like', "%{$needle}%"),
-            )
+            ->searchByEmail(isset($filters['email']) ? (string) $filters['email'] : null)
             ->when(
                 $filters['role'] ?? null,
                 fn ($query, $role) => $query->role($role),

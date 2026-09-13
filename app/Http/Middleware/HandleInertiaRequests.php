@@ -45,7 +45,6 @@ class HandleInertiaRequests extends Middleware
 
         return [
             ...parent::share($request),
-            'csrf' => csrf_token(),
             'status' => fn () => $request->session()->get('status'),
             'auth' => [
                 'user' => $user ? array_merge(

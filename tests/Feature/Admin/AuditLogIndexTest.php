@@ -6,8 +6,8 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\AdminAuditAction;
 use App\Enums\UserRole;
+use App\Models\AdminAuditLog;
 use App\Models\User;
-use Database\Factories\AdminAuditLogFactory;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -25,7 +25,7 @@ class AuditLogIndexTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $target = User::factory()->create();
-        AdminAuditLogFactory::new()->create([
+        AdminAuditLog::factory()->create([
             'admin_id' => $admin->id,
             'subject_id' => $target->id,
         ]);

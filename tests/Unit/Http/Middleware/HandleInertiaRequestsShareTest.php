@@ -26,14 +26,6 @@ class HandleInertiaRequestsShareTest extends TestCase
         Role::findOrCreate(UserRole::Admin->value, 'web');
     }
 
-    public function test_csrf_is_shared_as_string(): void
-    {
-        $props = $this->sharedProps();
-
-        $this->assertIsString($props['csrf']);
-        $this->assertNotSame('', $props['csrf']);
-    }
-
     public function test_auth_user_is_null_for_guest(): void
     {
         $this->assertNull($this->sharedUser());
@@ -91,7 +83,7 @@ class HandleInertiaRequestsShareTest extends TestCase
     }
 
     /**
-     * Session store backing the app (the same singleton backs csrf_token()).
+     * Session store backing the application.
      */
     private function sessionStore(): Store
     {

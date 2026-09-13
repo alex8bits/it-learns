@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\AdminAuditAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminAuditLogIndexRequest;
 use App\Models\AdminAuditLog;
@@ -14,7 +15,8 @@ class AuditLogController extends Controller
 {
     /**
      * Paginated audit log with optional filters: `action`, `admin_id`,
-     * and a `date_from` / `date_to` range over `created_at`. The
+     * and a `date_from` / `date_to` range over `created_at` (both bounds
+     * include the whole day, see `AdminAuditLog::scopeFiltered`). The
      * `admin` relation is eager-loaded to avoid an N+1 when rendering
      * the "performed by" column.
      *
@@ -29,23 +31,13 @@ class AuditLogController extends Controller
         $filters = $request->validated();
 
         $logs = AdminAuditLog::query()
+            ->filtered(
+                action: isset($filters['action']) ? AdminAuditAction::from((string) $filters['action']) : null,
+                adminId: isset($filters['admin_id']) ? (int) $filters['admin_id'] : null,
+                dateFrom: isset($filters['date_from']) ? (string) $filters['date_from'] : null,
+                dateTo: isset($filters['date_to']) ? (string) $filters['date_to'] : null,
+            )
             ->with('admin')
-            ->when(
-                $filters['action'] ?? null,
-                fn ($query, $action) => $query->where('action', $action),
-            )
-            ->when(
-                $filters['admin_id'] ?? null,
-                fn ($query, $adminId) => $query->where('admin_id', $adminId),
-            )
-            ->when(
-                $filters['date_from'] ?? null,
-                fn ($query, $date) => $query->where('created_at', '>=', $date),
-            )
-            ->when(
-                $filters['date_to'] ?? null,
-                fn ($query, $date) => $query->where('created_at', '<=', $date),
-            )
             ->latest('created_at')
             ->paginate(50)
             ->withQueryString();
