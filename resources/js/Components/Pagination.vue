@@ -12,8 +12,8 @@
             ←
         </button>
         <button
-            v-for="(page, index) in pages"
-            :key="index"
+            v-for="page in pages"
+            :key="page.label"
             type="button"
             :disabled="!page.url"
             :class="[

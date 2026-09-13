@@ -1,5 +1,5 @@
 <script setup>
-import { Link, usePage } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
 const page = usePage();
@@ -43,12 +43,13 @@ const isActive = (item) => item.match(page.url);
                 <Link href="/dashboard" class="text-sm text-gray-500 hover:text-gray-700">
                     ← На сайт
                 </Link>
-                <form method="POST" action="/logout" class="mt-2">
-                    <input type="hidden" name="_token" :value="page.props.csrf">
-                    <button type="submit" class="text-sm text-red-600 hover:text-red-800">
-                        Выйти
-                    </button>
-                </form>
+                <button
+                    type="button"
+                    class="text-sm text-red-600 hover:text-red-800"
+                    @click="router.post('/logout')"
+                >
+                    Выйти
+                </button>
             </div>
         </aside>
         <main class="flex-1 p-8">

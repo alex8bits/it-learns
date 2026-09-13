@@ -31,6 +31,10 @@ class HandleInertiaRequests extends Middleware
     /**
      * Define the props that are shared by default.
      *
+     * Flash `status` (e.g. from Fortify's forgot-password / reset-password
+     * redirects) is resolved lazily, so plain GETs without flash data do not
+     * touch the session.
+     *
      * @see https://inertiajs.com/shared-data
      *
      * @return array<string, mixed>
@@ -42,6 +46,7 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'csrf' => csrf_token(),
+            'status' => fn () => $request->session()->get('status'),
             'auth' => [
                 'user' => $user ? array_merge(
                     $user->only(['id', 'name', 'email']),
