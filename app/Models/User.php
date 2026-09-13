@@ -30,9 +30,10 @@ class User extends Authenticatable
      * clause names the backslash as the LIKE escape character; in the SQL
      * text it is written as `ESCAPE '\\'` because MySQL/MariaDB string
      * literals treat `\` as an escape themselves (NO_BACKSLASH_ESCAPES is
-     * not enabled). The mysql driver uses native prepared statements
-     * (PDO::ATTR_EMULATE_PREPARES = false), so the SQL reaches the server
-     * verbatim and only the pattern is bound.
+     * not enabled). The escaping works identically with native and
+     * emulated prepared statements (config/database.php does not disable
+     * PDO::ATTR_EMULATE_PREPARES); both modes are covered by
+     * UserSearchByEmailScopeTest, including the backslash needle case.
      *
      * @param  Builder<User>  $query
      * @return Builder<User>

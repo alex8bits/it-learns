@@ -61,7 +61,7 @@ class LocaleTest extends TestCase
 
     public function test_ru_translation_keys_cover_all_en_keys(): void
     {
-        foreach (['auth', 'passwords', 'validation'] as $file) {
+        foreach (['auth', 'pagination', 'passwords', 'validation'] as $file) {
             $en = require lang_path('en/'.$file.'.php');
             $ru = require lang_path('ru/'.$file.'.php');
 
