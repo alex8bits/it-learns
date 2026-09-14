@@ -32,7 +32,7 @@ Route::prefix('users')->name('users.')->group(function (): void {
     Route::post('/{user}/unblock', UnblockUserController::class)->name('unblock');
 });
 
-// Payments (Stage 3 stub — no model yet)
+// Payments (read-only admin views; manual operations land in Stage 3.1)
 Route::prefix('payments')->name('payments.')->group(function (): void {
     Route::get('/', [PaymentController::class, 'index'])->name('index');
     Route::get('/{payment}', [PaymentController::class, 'show'])

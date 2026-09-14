@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Actions\Admin\ChangeUserRole;
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionStatus;
+use App\Enums\SubscriptionTier;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminUpdateUserRequest;
@@ -46,12 +49,25 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * User card: profile fields plus the Spatie `roles` relation and the
+     * Stage 3 payment history — `subscriptions` and `payments` are
+     * eager-loaded (N+1 is forbidden by the shared `loadMissing` call).
+     * The enum option lists are passed alongside so the Vue page can
+     * render Russian labels without duplicating the enum values in JS
+     * constants.
+     */
     public function show(User $user): Response
     {
         $this->authorize('view', $user);
-        $user->load('roles');
+        $user->loadMissing(['roles', 'subscriptions', 'payments']);
 
-        return Inertia::render('Admin/Users/Show', ['user' => $user]);
+        return Inertia::render('Admin/Users/Show', [
+            'user' => $user,
+            'paymentStatuses' => PaymentStatus::options(),
+            'subscriptionStatuses' => SubscriptionStatus::options(),
+            'tiers' => SubscriptionTier::options(),
+        ]);
     }
 
     public function edit(User $user): Response

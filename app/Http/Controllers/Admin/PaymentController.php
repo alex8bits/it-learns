@@ -4,37 +4,69 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionStatus;
+use App\Enums\SubscriptionTier;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\AdminPaymentIndexRequest;
+use App\Models\Payment;
 use Inertia\Inertia;
 use Inertia\Response;
 
-/**
- * Stage 2 placeholder. Real payment management lands in Stage 3.
- *
- * Intentionally does NOT call `$this->authorize(...)`: the only related
- * Policy would be `CoursePolicy` (no `Payment` model exists yet), and
- * it is a stub returning `false` for every method (T03). The `role:admin`
- * middleware on the surrounding route group is the single source of truth
- * for access to this stub.
- */
 class PaymentController extends Controller
 {
-    public function index(): Response
+    /**
+     * Paginated payment list with optional filters: `status`, payer
+     * `email`, and a `date_from` / `date_to` range over `created_at`
+     * (both bounds include the whole day, see `Payment::scopeFiltered`).
+     * The `user` and `subscription` relations are eager-loaded to avoid
+     * an N+1 when rendering the table columns.
+     *
+     * `latest('id')` is used instead of `latest('created_at')`: both
+     * order chronologically for this table, and the `id` ordering keeps
+     * a stable total order for rows created within the same second.
+     */
+    public function index(AdminPaymentIndexRequest $request): Response
     {
+        $this->authorize('viewAny', Payment::class);
+
+        $filters = $request->validated();
+
+        $payments = Payment::query()
+            ->filtered(
+                status: isset($filters['status']) ? PaymentStatus::from((string) $filters['status']) : null,
+                email: isset($filters['email']) ? (string) $filters['email'] : null,
+                dateFrom: isset($filters['date_from']) ? (string) $filters['date_from'] : null,
+                dateTo: isset($filters['date_to']) ? (string) $filters['date_to'] : null,
+            )
+            ->with(['user', 'subscription'])
+            ->latest('id')
+            ->paginate(50)
+            ->withQueryString();
+
         return Inertia::render('Admin/Payments/Index', [
-            'stage' => 3,
+            'payments' => $payments,
+            'filters' => $filters,
+            'statuses' => PaymentStatus::options(),
         ]);
     }
 
     /**
-     * The `{payment}` parameter is plain `int` — Route Model Binding is
-     * not used because the `Payment` model does not exist in Stage 2.
+     * Single payment card: all fields including the raw provider
+     * `payload`, the payer, and the related subscription (when the
+     * payment is tied to one). Read-only — no admin mutations in
+     * Stage 3, so no audit-log entry is written here.
      */
-    public function show(int $payment): Response
+    public function show(Payment $payment): Response
     {
+        $this->authorize('view', $payment);
+        $payment->loadMissing(['user', 'subscription']);
+
         return Inertia::render('Admin/Payments/Show', [
-            'stage' => 3,
-            'paymentId' => $payment,
+            'payment' => $payment,
+            'statuses' => PaymentStatus::options(),
+            'subscriptionStatuses' => SubscriptionStatus::options(),
+            'tiers' => SubscriptionTier::options(),
         ]);
     }
 }

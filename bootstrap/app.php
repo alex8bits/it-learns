@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\EnsurePremium;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -27,9 +28,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(HandleInertiaRequests::class)
+            ->validateCsrfTokens(except: ['subscription/webhook'])
             ->alias([
                 'role' => RoleMiddleware::class,
                 'permission' => PermissionMiddleware::class,
+                'ensurepremium' => EnsurePremium::class,
             ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -19,6 +20,14 @@ class HandleInertiaRequests extends Middleware
     protected $rootView = 'app';
 
     /**
+     * `SubscriptionService` is injected through the constructor: the
+     * routing pipeline passes only `($request, $next)` into `handle()`
+     * (extra middleware parameters come from the middleware string), so
+     * constructor injection is the supported DI point for middleware.
+     */
+    public function __construct(private readonly SubscriptionService $subscriptions) {}
+
+    /**
      * Determines the current asset version.
      *
      * @see https://inertiajs.com/asset-versioning
@@ -31,9 +40,11 @@ class HandleInertiaRequests extends Middleware
     /**
      * Define the props that are shared by default.
      *
-     * Flash `status` (e.g. from Fortify's forgot-password / reset-password
-     * redirects) is resolved lazily, so plain GETs without flash data do not
-     * touch the session.
+     * Flash `status` (e.g. from Fortify's forgot-password /
+     * reset-password redirects) is resolved lazily, so plain GETs without
+     * flash data do not touch the session. `is_premium` is likewise lazy
+     * and only evaluated for authenticated users, so guest requests never
+     * hit the database for it.
      *
      * @see https://inertiajs.com/shared-data
      *
@@ -52,6 +63,7 @@ class HandleInertiaRequests extends Middleware
                     [
                         'roles' => $user->getRoleNames()->all(),
                         'is_blocked' => (bool) $user->is_blocked,
+                        'is_premium' => fn () => $this->subscriptions->isActive($user),
                     ],
                 ) : null,
             ],

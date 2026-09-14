@@ -7,10 +7,10 @@ parameters:
 			path: config/filesystems.php
 
 		-
-			message: '#^Call to method PHPUnit\\Framework\\Assert\:\:assertTrue\(\) with true will always evaluate to true\.$#'
-			identifier: method.alreadyNarrowedType
+			message: '#^Cannot call method label\(\) on string\.$#'
+			identifier: method.nonObject
 			count: 1
-			path: tests/Unit/ExampleTest.php
+			path: app/Http/Controllers/Admin/AuditLogController.php
 
 		-
 			message: '#^Called ''env'' outside of the config directory which returns null when the config is cached, use ''config''\.$#'

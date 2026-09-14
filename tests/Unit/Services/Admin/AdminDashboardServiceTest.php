@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Tests\Unit\Services\Admin;
 
 use App\Enums\UserRole;
+use App\Models\Payment;
+use App\Models\Subscription;
 use App\Models\User;
 use App\Services\Admin\AdminDashboardService;
+use Illuminate\Support\Carbon;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -49,5 +52,50 @@ class AdminDashboardServiceTest extends TestCase
         $this->assertSame(0, $counters['premium_active']);
         $this->assertSame(0, $counters['payments_month']);
         $this->assertSame(0, $counters['courses_published']);
+    }
+
+    public function test_premium_active_counts_in_force_subscriptions_including_cancelled(): void
+    {
+        Subscription::factory()->count(2)->create();
+        Subscription::factory()->cancelled()->create();
+        Subscription::factory()->expired()->create();
+        Subscription::factory()->pending()->create();
+        Subscription::factory()->create([
+            'starts_at' => now()->subMonth(),
+            'ends_at' => now()->subDay(),
+        ]);
+
+        $counters = app(AdminDashboardService::class)->counters();
+
+        // 2 in-force Active + 1 Cancelled whose paid period has not ended;
+        // Expired, Pending and a lapsed Active period do not count.
+        $this->assertSame(3, $counters['premium_active']);
+    }
+
+    public function test_payments_month_counts_only_succeeded_payments_of_current_month(): void
+    {
+        Payment::factory()->count(3)->succeeded()->create();
+        Payment::factory()->failed()->create();
+        Payment::factory()->refunded()->create();
+        $this->createPaymentAt(now()->startOfMonth()->subSecond());
+
+        $counters = app(AdminDashboardService::class)->counters();
+
+        $this->assertSame(3, $counters['payments_month']);
+    }
+
+    /**
+     * Create a payment with an explicit `created_at`. The timestamp is
+     * written via a direct attribute update, so the factory default
+     * (real `now()`) does not interfere.
+     */
+    private function createPaymentAt(Carbon $createdAt): Payment
+    {
+        $payment = Payment::factory()->succeeded()->create();
+
+        $payment->created_at = $createdAt;
+        $payment->save();
+
+        return $payment;
     }
 }

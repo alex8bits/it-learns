@@ -27,13 +27,11 @@ defineProps({
             </div>
             <div class="bg-white rounded-lg border border-gray-200 p-6">
                 <p class="text-sm text-gray-500">Премиум активно</p>
-                <p class="text-3xl font-semibold text-gray-300 mt-2">—</p>
-                <p class="text-xs text-gray-400 mt-1">Запланировано в Этапе 3</p>
+                <p class="text-3xl font-semibold text-gray-900 mt-2">{{ counters.premium_active }}</p>
             </div>
             <div class="bg-white rounded-lg border border-gray-200 p-6">
                 <p class="text-sm text-gray-500">Оплат за месяц</p>
-                <p class="text-3xl font-semibold text-gray-300 mt-2">—</p>
-                <p class="text-xs text-gray-400 mt-1">Запланировано в Этапе 3</p>
+                <p class="text-3xl font-semibold text-gray-900 mt-2">{{ counters.payments_month }}</p>
             </div>
             <div class="bg-white rounded-lg border border-gray-200 p-6">
                 <p class="text-sm text-gray-500">Курсов опубликовано</p>

@@ -1,9 +1,15 @@
 <script setup>
 import AdminLayout from '../../../Layouts/AdminLayout.vue';
+import { formatMoney } from '../../../utils/money';
 import { Link, useForm, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
-const props = defineProps({ user: { type: Object, required: true } });
+const props = defineProps({
+    user: { type: Object, required: true },
+    paymentStatuses: { type: Array, required: true },
+    subscriptionStatuses: { type: Array, required: true },
+    tiers: { type: Array, required: true },
+});
 const page = usePage();
 const canChange = computed(() => page.props.auth.user.id !== props.user.id);
 const canBlock = canChange;
@@ -20,6 +26,23 @@ const submitBlock = () => {
 const submitUnblock = () => {
     blockForm.post(`/admin/users/${props.user.id}/unblock`);
 };
+
+// Labels come from the backend option props — no enum duplicates in JS.
+const labelFrom = (options, value) => options.find((o) => o.value === value)?.label ?? value;
+
+const paymentBadgeClass = (value) => ({
+    Succeeded: 'bg-green-100 text-green-800',
+    Failed: 'bg-red-100 text-red-800',
+    Refunded: 'bg-yellow-100 text-yellow-800',
+    Pending: 'bg-gray-100 text-gray-800',
+}[value] ?? 'bg-gray-100 text-gray-800');
+
+const formatDateTime = (value) => (value ? new Date(value).toLocaleString('ru-RU') : '—');
+const formatDate = (value) => (value ? new Date(value).toLocaleDateString('ru-RU') : '—');
+
+const subscriptionPeriod = (subscription) => (subscription.starts_at || subscription.ends_at
+    ? `${formatDate(subscription.starts_at)} — ${formatDate(subscription.ends_at)}`
+    : '—');
 </script>
 
 <template>
@@ -45,6 +68,75 @@ const submitUnblock = () => {
             >
                 Пользователь заблокирован
             </div>
+        </div>
+
+        <div class="mt-6 bg-white rounded-lg border border-gray-200 p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Подписки</h2>
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Тариф</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Статус</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Период</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Провайдер</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr
+                        v-for="subscription in user.subscriptions"
+                        :key="subscription.id"
+                        class="border-t border-gray-200"
+                    >
+                        <td class="px-4 py-2 text-sm">{{ labelFrom(tiers, subscription.tier) }}</td>
+                        <td class="px-4 py-2 text-sm">
+                            {{ labelFrom(subscriptionStatuses, subscription.status) }}
+                        </td>
+                        <td class="px-4 py-2 text-sm">{{ subscriptionPeriod(subscription) }}</td>
+                        <td class="px-4 py-2 text-sm">{{ subscription.provider ?? '—' }}</td>
+                    </tr>
+                    <tr v-if="!user.subscriptions || user.subscriptions.length === 0">
+                        <td colspan="4" class="px-4 py-6 text-center text-sm text-gray-500">
+                            Подписок нет
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-6 bg-white rounded-lg border border-gray-200 p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Платежи</h2>
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Дата</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Сумма</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Статус</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr
+                        v-for="payment in user.payments"
+                        :key="payment.id"
+                        class="border-t border-gray-200"
+                    >
+                        <td class="px-4 py-2 text-sm">{{ formatDateTime(payment.created_at) }}</td>
+                        <td class="px-4 py-2 text-sm">{{ formatMoney(payment.amount, payment.currency) }}</td>
+                        <td class="px-4 py-2 text-sm">
+                            <span
+                                class="px-2 py-1 rounded text-xs"
+                                :class="paymentBadgeClass(payment.status)"
+                            >
+                                {{ labelFrom(paymentStatuses, payment.status) }}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr v-if="!user.payments || user.payments.length === 0">
+                        <td colspan="3" class="px-4 py-6 text-center text-sm text-gray-500">
+                            Платежей нет
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
 
         <div

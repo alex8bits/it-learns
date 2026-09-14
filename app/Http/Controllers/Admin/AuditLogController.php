@@ -48,11 +48,19 @@ class AuditLogController extends Controller
         ]);
     }
 
+    /**
+     * Single audit log entry. `actionLabel` is passed separately: Inertia
+     * serializes the `action` enum cast to its value string, while the
+     * human-readable label is what the page displays.
+     */
     public function show(AdminAuditLog $log): Response
     {
         $this->authorize('view', $log);
         $log->load('admin');
 
-        return Inertia::render('Admin/AuditLogs/Show', ['log' => $log]);
+        return Inertia::render('Admin/AuditLogs/Show', [
+            'log' => $log,
+            'actionLabel' => $log->action->label(),
+        ]);
     }
 }

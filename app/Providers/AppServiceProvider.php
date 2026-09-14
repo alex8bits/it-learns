@@ -6,12 +6,14 @@ namespace App\Providers;
 
 use App\Services\Admin\AdminAuditLogger;
 use App\Services\Admin\AdminDashboardService;
+use App\Services\Payments\PaymentGateway;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -22,6 +24,8 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(AdminAuditLogger::class);
         $this->app->singleton(AdminDashboardService::class);
+
+        $this->registerPaymentGateway();
     }
 
     /**
@@ -34,6 +38,27 @@ class AppServiceProvider extends ServiceProvider
         $this->configureRateLimiters();
 
         $this->attachAuthRouteThrottles();
+    }
+
+    /**
+     * Bind the payment gateway selected by PAYMENT_PROVIDER.
+     *
+     * Fail loud: a provider missing from the whitelist must crash the
+     * application on boot instead of silently resolving to nothing.
+     */
+    private function registerPaymentGateway(): void
+    {
+        /** @var string $provider */
+        $provider = config('payments.provider');
+
+        /** @var array<string, class-string<PaymentGateway>> $gateways */
+        $gateways = config('payments.gateways');
+
+        if (! isset($gateways[$provider])) {
+            throw new RuntimeException("Payment gateway [{$provider}] is not whitelisted in config/payments.php");
+        }
+
+        $this->app->singleton(PaymentGateway::class, $gateways[$provider]);
     }
 
     /**
@@ -52,6 +77,14 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('forgot-password', function (Request $request) {
             return Limit::perMinute(5)->by($request->ip());
+        });
+
+        RateLimiter::for('subscription', function (Request $request) {
+            return Limit::perMinute(10)->by($request->user()?->id ?: $request->ip());
+        });
+
+        RateLimiter::for('payment-webhook', function (Request $request) {
+            return Limit::perMinute(60)->by($request->ip());
         });
     }
 
