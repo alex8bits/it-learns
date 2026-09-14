@@ -220,7 +220,7 @@ Before relying on a package's API, confirm its installed version:
 
 ### Ключевые интеграции (каркас)
 
-`PaymentGateway` (интерфейс; `InstantPaymentGateway` — единственная реализация на старте, см. `concept.md §9.2.2` и `platform-plan.md` Этап 3), `LlmClient` (интерфейс; whitelist реализаций: `OpenAiLlmClient`, `AnthropicLlmClient`, `MiniMaxLlmClient`, `OpenAiCompatibleLlmClient` + `DummyLlmClient` для dev/тестов; единый активный провайдер через `.env`, single-tenant — см. `concept.md §9.2.5`), `PracticeEnvironmentManager` (интерфейс; `LocalSqlitePracticeEnvironment` для dev/тестов). Секреты и тумблеры — в `.env`, см. `.env.example`.
+`PaymentGateway` (интерфейс; фабрика гейтов по конфигу `PAYMENT_PROVIDER` с whitelist в `config/payments.php`, единый паттерн с `LlmClient` — см. `platform-plan.md` Этап 3; на старте единственная реализация `DummyPaymentGateway` — фиктивный гейт, премиум без реальной оплаты; боевые гейты добавляются в whitelist и подключаются в Этапе 3.1), `LlmClient` (интерфейс; whitelist реализаций: `OpenAiLlmClient`, `AnthropicLlmClient`, `MiniMaxLlmClient`, `OpenAiCompatibleLlmClient` + `DummyLlmClient` для dev/тестов; единый активный провайдер через `.env`, single-tenant — см. `concept.md §9.2.5`), `PracticeEnvironmentManager` (интерфейс; `LocalSqlitePracticeEnvironment` для dev/тестов). Секреты и тумблеры — в `.env`, см. `.env.example`.
 
 ---
 
