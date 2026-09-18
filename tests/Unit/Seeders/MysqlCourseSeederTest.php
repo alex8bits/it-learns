@@ -200,24 +200,32 @@ class MysqlCourseSeederTest extends TestCase
 
     public function test_repeated_run_does_not_update_or_duplicate_existing_rows(): void
     {
-        $this->seed(MysqlCourseSeeder::class);
+        // A synthetic lesson fixture (not the real `docs/mysql/` files)
+        // keeps the expected counts deterministic and independent from
+        // how many real lessons the course ships with.
+        $seeder = $this->writeFixtureFile(
+            'basics-02-fixture-lesson.md',
+            self::lessonFile(self::practiceFrontmatter(), self::practiceBody(self::validQuestion(), self::validPracticeTask())),
+        );
+
+        $seeder->run();
 
         // Mutate the lesson to prove a repeated run neither updates nor
         // duplicates: existing lessons are skipped as a whole.
-        $lesson = Lesson::query()->where('slug', 'what-is-a-database')->firstOrFail();
+        $lesson = Lesson::query()->where('slug', 'fixture-lesson')->firstOrFail();
         $lesson->update([
             'title' => 'Изменён вручную',
             'material' => 'Материал перезаписан вручную.',
         ]);
 
-        $this->seed(MysqlCourseSeeder::class);
+        $seeder->run();
 
         $this->assertDatabaseCount('courses', 1);
         $this->assertDatabaseCount('levels', 4);
         $this->assertDatabaseCount('lessons', 1);
-        $this->assertDatabaseCount('theory_tasks', 5);
-        $this->assertDatabaseCount('theory_task_options', 15);
-        $this->assertDatabaseCount('practice_tasks', 2);
+        $this->assertDatabaseCount('theory_tasks', 1);
+        $this->assertDatabaseCount('theory_task_options', 2);
+        $this->assertDatabaseCount('practice_tasks', 1);
 
         $lesson->refresh();
 
@@ -227,30 +235,39 @@ class MysqlCourseSeederTest extends TestCase
 
     public function test_deleted_lesson_is_recreated_by_next_run(): void
     {
-        $this->seed(MysqlCourseSeeder::class);
+        $seeder = $this->writeFixtureFile(
+            'basics-02-fixture-lesson.md',
+            self::lessonFile(self::practiceFrontmatter(), self::practiceBody(self::validQuestion(), self::validPracticeTask())),
+        );
+
+        $seeder->run();
 
         // Removing the lesson cascades to its tasks; the append-only
         // seeder must re-create exactly what is missing.
-        Lesson::query()->where('slug', 'what-is-a-database')->firstOrFail()->delete();
+        Lesson::query()->where('slug', 'fixture-lesson')->firstOrFail()->delete();
 
         $this->assertDatabaseCount('lessons', 0);
         $this->assertDatabaseCount('theory_tasks', 0);
         $this->assertDatabaseCount('theory_task_options', 0);
         $this->assertDatabaseCount('practice_tasks', 0);
 
-        $this->seed(MysqlCourseSeeder::class);
+        $seeder->run();
 
-        $lesson = Lesson::query()->where('slug', 'what-is-a-database')->firstOrFail();
+        $lesson = Lesson::query()->where('slug', 'fixture-lesson')->firstOrFail();
 
-        $this->assertSame('Что такое база данных и СУБД', $lesson->title);
+        $this->assertSame('Урок с практикой', $lesson->title);
         $this->assertTrue($lesson->is_published);
+
+        // The re-created lesson carries its tasks again.
+        $this->assertSame(1, TheoryTask::query()->where('lesson_id', $lesson->id)->count());
+        $this->assertSame(1, PracticeTask::query()->where('lesson_id', $lesson->id)->count());
 
         $this->assertDatabaseCount('courses', 1);
         $this->assertDatabaseCount('levels', 4);
         $this->assertDatabaseCount('lessons', 1);
-        $this->assertDatabaseCount('theory_tasks', 5);
-        $this->assertDatabaseCount('theory_task_options', 15);
-        $this->assertDatabaseCount('practice_tasks', 2);
+        $this->assertDatabaseCount('theory_tasks', 1);
+        $this->assertDatabaseCount('theory_task_options', 2);
+        $this->assertDatabaseCount('practice_tasks', 1);
     }
 
     public function test_theory_only_lesson_file_seeds_lesson_without_practice_tasks(): void
@@ -367,47 +384,7 @@ class MysqlCourseSeederTest extends TestCase
 
         MD;
 
-        $unknownRuntimeBody = <<<'MD'
-        # Урок
-
-        ## Материал
-
-        Материал урока.
-
-        ## Теоретические задания
-
-        ### Вопрос 1: Один ли верный вариант?
-
-        - ✅ Верный вариант
-        - ❌ Неверный вариант — error_text: почему он неверен
-
-        ## Практические задания
-
-        ### Задание 1: Первое задание
-
-        **statement:**
-
-        Выведите все строки таблицы `t`.
-
-        **expected_result_text:**
-
-        Один столбец и одна строка.
-
-        **seed_sql:**
-
-        ```sql
-        CREATE TABLE t (id INT);
-        INSERT INTO t (id) VALUES (1);
-        ```
-
-        **expected_rows:**
-
-        | id |
-        | -- |
-        | 1  |
-
-        **runtime:** oracle
-        MD;
+        $unknownRuntimeBody = self::practiceBody(self::validQuestion(), self::validPracticeTask('oracle'));
 
         return [
             'frontmatter без level_slug' => [
@@ -558,6 +535,16 @@ class MysqlCourseSeederTest extends TestCase
     }
 
     /**
+     * Lesson body with a valid material section, the given theory
+     * question section and a `## Практические задания` section holding
+     * the given practice task (docs/mysql-lesson-rule.md §5).
+     */
+    private static function practiceBody(string $question, string $practiceTask): string
+    {
+        return self::theoryBody($question)."\n\n## Практические задания\n\n".$practiceTask;
+    }
+
+    /**
      * Valid single-question theory section: one ✅ and one ❌ with an
      * error_text.
      */
@@ -568,6 +555,43 @@ class MysqlCourseSeederTest extends TestCase
 
         - ✅ Верный вариант
         - ❌ Неверный вариант — error_text: почему он неверен
+
+        MD;
+    }
+
+    /**
+     * Valid single-task practice section with all the required markers:
+     * `**statement:**`, `**expected_result_text:**`, `**seed_sql:**`,
+     * `**expected_rows:**` and `**runtime:**` set to the given runtime
+     * (`mysql` by default).
+     */
+    private static function validPracticeTask(string $runtime = 'mysql'): string
+    {
+        return <<<MD
+        ### Задание 1: Первое задание
+
+        **statement:**
+
+        Выведите все строки таблицы `t`.
+
+        **expected_result_text:**
+
+        Один столбец и одна строка.
+
+        **seed_sql:**
+
+        ```sql
+        CREATE TABLE t (id INT);
+        INSERT INTO t (id) VALUES (1);
+        ```
+
+        **expected_rows:**
+
+        | id |
+        | -- |
+        | 1  |
+
+        **runtime:** {$runtime}
 
         MD;
     }

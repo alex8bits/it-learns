@@ -44,6 +44,7 @@ class DockerPracticeEnvironmentTest extends TestCase
         '-F', "\t",
         '--no-psqlrc',
         '-P', 'null='.DockerTableParser::NULL_MARKER,
+        '-v', 'ON_ERROR_STOP=1',
         '-q',
     ];
 
@@ -428,14 +429,27 @@ class DockerPracticeEnvironmentTest extends TestCase
         ];
     }
 
-    public function test_execute_rejects_multiple_statements(): void
+    public function test_execute_runs_multiple_statements_in_one_exec(): void
     {
         $environment = $this->createDockerEnvironment('cid-multi', PracticeRuntime::Mysql);
 
-        $result = $this->manager->execute($environment, 'SELECT 1; SELECT 2');
+        $code = "INSERT INTO t (id) VALUES (1);\nSELECT id FROM t;";
 
-        $this->assertSame('Множественные statements запрещены', $result->error);
-        $this->assertSame(0.0, $result->durationMs);
+        // One docker exec with the raw code: the whole script shares a
+        // single engine client session, and the TSV output of the last
+        // instruction is the graded result.
+        $this->docker->shouldReceive('exec')->once()->with(
+            'cid-multi',
+            self::MYSQL_CLIENT,
+            $code."\n",
+            20,
+        )->andReturn(new DockerExecResult(0, "id\n1\n", '', 1.0));
+
+        $result = $this->manager->execute($environment, $code);
+
+        $this->assertNull($result->error);
+        $this->assertSame(['id'], $result->columns);
+        $this->assertSame([['id' => '1']], $result->rows);
     }
 
     /**
@@ -472,6 +486,72 @@ class DockerPracticeEnvironmentTest extends TestCase
             'postgres ALTER SYSTEM' => [PracticeRuntime::Postgres, 'alter system set fsync = off', 'ALTER SYSTEM'],
             'postgres LOAD' => [PracticeRuntime::Postgres, "LOAD 'evil.so'", 'LOAD'],
         ];
+    }
+
+    /**
+     * @param  PracticeRuntime  $runtime  the environment's engine
+     * @param  string  $code  the solution whose later statement carries the banned keyword
+     * @param  string  $keyword  the expected blacklisted keyword in the message
+     */
+    #[DataProvider('blacklistInAnyStatementProvider')]
+    public function test_execute_rejects_blacklisted_keywords_in_any_statement(PracticeRuntime $runtime, string $code, string $keyword): void
+    {
+        $environment = $this->createDockerEnvironment('cid-bl2', $runtime);
+
+        $result = $this->manager->execute($environment, $code);
+
+        $this->assertSame(sprintf('Запрос с %s запрещён', $keyword), $result->error);
+        $this->assertSame(0.0, $result->durationMs);
+    }
+
+    /**
+     * @return array<string, array{0: PracticeRuntime, 1: string, 2: string}>
+     */
+    public static function blacklistInAnyStatementProvider(): array
+    {
+        return [
+            'mysql SET as the second statement' => [
+                PracticeRuntime::Mysql,
+                'SELECT 1; SET GLOBAL max_connections = 1000',
+                'SET',
+            ],
+            'postgres NOTIFY as the second statement' => [
+                PracticeRuntime::Postgres,
+                'SELECT 1; NOTIFY channel',
+                'NOTIFY',
+            ],
+            'mysql SET after an empty leading statement' => [
+                PracticeRuntime::Mysql,
+                '; SET GLOBAL max_connections = 1000',
+                'SET',
+            ],
+        ];
+    }
+
+    public function test_execute_rejects_too_many_statements(): void
+    {
+        config(['practice.docker.max_statements' => 2]);
+
+        $environment = $this->createDockerEnvironment('cid-cap', PracticeRuntime::Mysql);
+
+        // Three statements against a cap of two: rejected before any
+        // Docker call (the strict mock fails the test on an exec).
+        $result = $this->manager->execute($environment, 'SELECT 1; SELECT 2; SELECT 3');
+
+        $this->assertSame('Слишком много инструкций в решении', $result->error);
+        $this->assertSame(0.0, $result->durationMs);
+
+        // The boundary case: exactly at the cap the script still runs.
+        $this->docker->shouldReceive('exec')->once()->with(
+            'cid-cap',
+            self::MYSQL_CLIENT,
+            "SELECT 1; SELECT 2\n",
+            20,
+        )->andReturn(new DockerExecResult(0, "1\n2\n", '', 1.0));
+
+        $boundary = $this->manager->execute($environment, 'SELECT 1; SELECT 2');
+
+        $this->assertNull($boundary->error);
     }
 
     public function test_execute_allows_a_trailing_semicolon_and_comment_masks(): void

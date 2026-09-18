@@ -646,6 +646,11 @@ watch(
                                 :class="practiceForm.errors.code ? 'border-red-400' : 'border-gray-300'"
                             ></textarea>
                         </label>
+                        <!-- Мульти-стейтменты разрешены (docker-драйвер):
+                             зачёт по result set последней инструкции. -->
+                        <p class="mb-3 text-xs text-gray-500">
+                            Можно несколько инструкций, разделённых «;». Зачёт по результату последней.
+                        </p>
                         <p v-if="practiceForm.errors.code" class="mb-3 text-xs text-red-600 break-words">
                             {{ practiceForm.errors.code }}
                         </p>

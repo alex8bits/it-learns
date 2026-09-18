@@ -93,9 +93,12 @@ return [
     | execution timeout (the Process facade hard-kills `docker exec`
     | shortly after it, then a post-factum duration check produces
     | the friendly verdict), the max size of the raw engine output,
-    | the provision budget (the mysql image alone boots 10-30 s) and
-    | the TTL of the hanging-container pruner. Completeness of this
-    | section is boot-validated when PRACTICE_DRIVER=docker.
+    | the cap on the number of SQL statements in one solution (a
+    | multi-statement solution runs in a single engine client
+    | session; the result credited is the last statement's result
+    | set), the provision budget (the mysql image alone boots 10-30 s)
+    | and the TTL of the hanging-container pruner. Completeness of
+    | this section is boot-validated when PRACTICE_DRIVER=docker.
     |
     */
 
@@ -110,6 +113,7 @@ return [
         'pids_limit' => (int) env('PRACTICE_DOCKER_PIDS_LIMIT', 128),
         'timeout_seconds' => (int) env('PRACTICE_DOCKER_TIMEOUT_SECONDS', 20),
         'max_result_bytes' => (int) env('PRACTICE_DOCKER_MAX_RESULT_BYTES', 1_048_576),
+        'max_statements' => (int) env('PRACTICE_DOCKER_MAX_STATEMENTS', 20),
         'provision_timeout_seconds' => (int) env('PRACTICE_DOCKER_PROVISION_TIMEOUT_SECONDS', 60),
         'prune' => ['ttl_minutes' => (int) env('PRACTICE_DOCKER_PRUNE_TTL_MINUTES', 30)],
     ],

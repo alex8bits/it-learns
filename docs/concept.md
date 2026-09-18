@@ -160,8 +160,10 @@
     `sqlite`), выбирается в админ-CRUD; DTO `PracticeTaskInput` прокидывает
     рантайм задачи в среду исполнения.
   - Гварды docker-драйвера: `--network none` (сеть отрезана), лимиты
-    `--memory`/`--cpus`/`--pids-limit`, single-statement-гвард (общий
-    splitter с SQLite-драйвером), per-runtime blacklist метакоманд
+    `--memory`/`--cpus`/`--pids-limit`, лимит числа SQL-инструкций в
+    решении (`practice.docker.max_statements`) + per-statement blacklist
+    запрещённых команд (общий splitter с SQLite-драйвером), per-runtime
+    blacklist метакоманд
     (в т.ч. psql-метакоманды вида `\copy`), provision/execution-таймауты,
     лимит размера результата, глобальные слоты конкурентности
     (`practice.concurrency.max_environments`), pruner висящих контейнеров

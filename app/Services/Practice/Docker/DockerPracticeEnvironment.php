@@ -26,15 +26,17 @@ use Throwable;
  * calling action's finally (destroy()).
  *
  * Safety model — the guards of docs/concept.md §5.4 mapped onto the
- * docker runtime: the psql meta-command ban, the shared
- * single-statement splitter and the per-runtime first-keyword
- * blacklist run before any Docker call; the execution timeout is
- * enforced twice (the Process facade hard-kills the local `docker
- * exec`, then a post-factum duration check produces the friendly
- * verdict); the result size limit caps the engine output. Guard
- * violations are reported through ExecutionResult::error, never
- * thrown; only provisioning failures throw RuntimeException after a
- * Failed row is persisted and the half-created container removed.
+ * docker runtime: the psql meta-command ban, the statement-count cap
+ * and the per-statement first-keyword blacklist run before any Docker
+ * call; the execution timeout is enforced twice (the Process facade
+ * hard-kills the local `docker exec`, then a post-factum duration
+ * check produces the friendly verdict); the result size limit caps
+ * the engine output. A multi-statement solution runs in one engine
+ * client session — the graded result set is the output of its last
+ * instruction. Guard violations are reported through
+ * ExecutionResult::error, never thrown; only provisioning failures
+ * throw RuntimeException after a Failed row is persisted and the
+ * half-created container removed.
  *
  * Config is read at call time (the PaymentGateway/LlmClient pattern),
  * never cached in the constructor. The manager never touches the
@@ -51,7 +53,7 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
 
     private const ERROR_STATEMENT_KEYWORD = 'Запрос с %s запрещён';
 
-    private const ERROR_MULTIPLE_STATEMENTS = 'Множественные statements запрещены';
+    private const ERROR_TOO_MANY_STATEMENTS = 'Слишком много инструкций в решении';
 
     private const ERROR_TIMEOUT = 'Превышен таймаут исполнения запроса';
 
@@ -246,27 +248,30 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
             }
         }
 
-        // Guard 2: a single statement only. The shared splitter skips
-        // comments and keeps literals intact, so the first keyword
-        // below sees the real statement; a trailing ';' plus
+        // Guard 2: the statement-count cap. The shared splitter skips
+        // comments and keeps literals intact, so every fragment below
+        // surfaces with its real first keyword; a trailing ';' plus
         // whitespace stays tolerated as an empty fragment.
         $statements = array_values(array_filter(
             array_map(trim(...), $this->splitter->split($code)),
             static fn (string $statement): bool => $statement !== '',
         ));
 
-        if (count($statements) > 1) {
-            return $this->rejected(self::ERROR_MULTIPLE_STATEMENTS);
+        if (count($statements) > $this->maxStatements()) {
+            return $this->rejected(self::ERROR_TOO_MANY_STATEMENTS);
         }
 
-        $sql = $statements[0] ?? '';
-
-        // Guard 3: statements must not start with a blacklisted
-        // keyword of the task's runtime.
+        // Guard 3: no statement may start with a blacklisted keyword
+        // of the task's runtime — the check runs per statement, so a
+        // banned command cannot ride in as a later instruction.
         $pattern = self::KEYWORD_BLACKLIST[$runtime->value] ?? '';
 
-        if ($pattern !== '' && preg_match($pattern, $sql, $matches) === 1) {
-            return $this->rejected(sprintf(self::ERROR_STATEMENT_KEYWORD, strtoupper($matches[1])));
+        if ($pattern !== '') {
+            foreach ($statements as $statement) {
+                if (preg_match($pattern, $statement, $matches) === 1) {
+                    return $this->rejected(sprintf(self::ERROR_STATEMENT_KEYWORD, strtoupper($matches[1])));
+                }
+            }
         }
 
         try {
@@ -369,6 +374,8 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
         if ($runtime === PracticeRuntime::Postgres) {
             // Local socket connections inside the official image trust
             // the postgres OS user, so no password switch is needed.
+            // ON_ERROR_STOP aborts the script on the first failed
+            // statement instead of psql's default swallow-and-exit-0.
             return [
                 'psql',
                 '-U', 'postgres',
@@ -376,6 +383,7 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
                 '-F', "\t",
                 '--no-psqlrc',
                 '-P', 'null='.DockerTableParser::NULL_MARKER,
+                '-v', 'ON_ERROR_STOP=1',
                 '-q',
             ];
         }
@@ -503,6 +511,11 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
     private function maxResultBytes(): int
     {
         return max(1, (int) config('practice.docker.max_result_bytes'));
+    }
+
+    private function maxStatements(): int
+    {
+        return max(1, (int) config('practice.docker.max_statements'));
     }
 
     /**

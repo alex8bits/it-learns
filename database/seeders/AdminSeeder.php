@@ -9,7 +9,6 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class AdminSeeder extends Seeder
 {
@@ -20,7 +19,7 @@ class AdminSeeder extends Seeder
     public function run(): void
     {
         $email = (string) env('ADMIN_EMAIL', 'admin@example.com');
-        $password = (string) (env('ADMIN_PASSWORD') ?: "password");
+        $password = (string) (env('ADMIN_PASSWORD') ?: 'password');
 
         $admin = User::firstOrCreate(
             ['email' => $email],
