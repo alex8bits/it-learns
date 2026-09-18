@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -29,7 +30,7 @@ Route::middleware('guest:web')->group(function (): void {
 Route::middleware('auth:web')->get('/user/confirm-password', fn () => Inertia::render('Auth/ConfirmPassword'))
     ->name('password.confirm');
 
-// Авторизованный GET /dashboard.
-Route::middleware('auth:web')->get('/dashboard', fn () => Inertia::render('Dashboard', [
-    'user' => auth()->user()->only(['id', 'name', 'email']),
-]))->name('dashboard');
+// Авторизованный GET /dashboard: личный кабинет с каталогом опубликованных
+// курсов (см. DashboardController) — тонкий контроллер вместо замыкания,
+// потому что странице нужны данные из БД.
+Route::middleware('auth:web')->get('/dashboard', DashboardController::class)->name('dashboard');

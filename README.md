@@ -25,12 +25,17 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan migrate
+php artisan storage:link
 npm install
 npm run build
-php artisan serve
+php artisan serve --port=28080
 ```
 
-После этого приложение доступно на `http://localhost:8000`.
+После этого приложение доступно на `http://localhost:28080`
+(в Docker-окружении nginx слушает тот же порт — см. `docker-compose.yml`).
+
+`php artisan storage:link` создаёт symlink `public/storage` → `storage/app/public` —
+без него превью-картинки курсов не отдаются.
 
 ## Команды качества
 

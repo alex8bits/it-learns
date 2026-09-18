@@ -58,6 +58,16 @@ class PaymentPolicyTest extends TestCase
         $this->assertFalse($this->policy->view($this->user, $this->payment));
     }
 
+    public function test_refund_allows_admin(): void
+    {
+        $this->assertTrue($this->policy->refund($this->admin, $this->payment));
+    }
+
+    public function test_refund_denies_user(): void
+    {
+        $this->assertFalse($this->policy->refund($this->user, $this->payment));
+    }
+
     public function test_create_update_delete_are_denied_for_admin(): void
     {
         $this->assertFalse(Gate::forUser($this->admin)->check('create', $this->payment));

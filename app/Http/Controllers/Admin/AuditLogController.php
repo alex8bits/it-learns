@@ -18,7 +18,9 @@ class AuditLogController extends Controller
      * and a `date_from` / `date_to` range over `created_at` (both bounds
      * include the whole day, see `AdminAuditLog::scopeFiltered`). The
      * `admin` relation is eager-loaded to avoid an N+1 when rendering
-     * the "performed by" column.
+     * the "performed by" column. The `actions` prop carries the enum's
+     * `options()` list so the Vue filter does not duplicate the action
+     * values in JS constants.
      *
      * `latest('created_at')` is explicit because `AdminAuditLog`
      * disables `updated_at` (`$timestamps = false`), so the default
@@ -45,6 +47,7 @@ class AuditLogController extends Controller
         return Inertia::render('Admin/AuditLogs/Index', [
             'logs' => $logs,
             'filters' => $filters,
+            'actions' => AdminAuditAction::options(),
         ]);
     }
 

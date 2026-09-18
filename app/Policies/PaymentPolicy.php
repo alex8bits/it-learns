@@ -26,12 +26,23 @@ class PaymentPolicy
         return $user->hasRole(UserRole::Admin->value);
     }
 
+    /**
+     * Admin can refund a payment. The business guards (status must be
+     * `Succeeded`, provider must match the active gateway) live in the
+     * `RefundPayment` action, not here — the policy answers "who may
+     * attempt a refund", the action answers "is this payment refundable".
+     */
+    public function refund(User $user, Payment $payment): bool
+    {
+        return $user->hasRole(UserRole::Admin->value);
+    }
+
     /*
-     * Intentionally no create/update/delete methods. Stage 3 admin
-     * payment operations are read-only (manual refunds and other
-     * mutations land in Stage 3.1 with their own audit-logged Actions);
-     * Laravel's Gate denies these abilities by default, so any
-     * accidental authorize('create', $payment) call throws
-     * AuthorizationException instead of silently allowing it.
+     * Intentionally no create/update/delete methods. The only payment
+     * mutation is `refund` (the audit-logged `RefundPayment` action,
+     * Stage 9); manually marking a payment as paid stays out of scope.
+     * Laravel's Gate denies these abilities by default, so any accidental
+     * authorize('create', $payment) call throws AuthorizationException
+     * instead of silently allowing it.
      */
 }

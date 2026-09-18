@@ -66,6 +66,15 @@ class UserPolicy
         return $this->isAdmin($user) && $user->id !== $target->id;
     }
 
+    /**
+     * Only an admin can adjust a user's LLM token budget, and never
+     * their own (self-granted tokens would bypass the daily quota).
+     */
+    public function updateLlmLimit(User $user, User $target): bool
+    {
+        return $this->isAdmin($user) && $user->id !== $target->id;
+    }
+
     private function isAdmin(User $user): bool
     {
         return $user->hasRole(UserRole::Admin->value);

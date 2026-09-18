@@ -1,14 +1,26 @@
 <script setup>
 import AdminLayout from '../../../Layouts/AdminLayout.vue';
 import { formatMoney } from '../../../utils/money';
-import { Link } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 
 const props = defineProps({
     payment: { type: Object, required: true },
     statuses: { type: Array, required: true },
     subscriptionStatuses: { type: Array, required: true },
     tiers: { type: Array, required: true },
+    error: { type: String, default: null },
 });
+
+const page = usePage();
+
+// Refund (Stage 9): confirm + POST — the Prompts/History rollback pattern.
+// Business guards live server-side in the RefundPayment action; a refusal
+// comes back as the `error` flash, success as the shared `status` flash.
+const refund = () => {
+    if (confirm('Вернуть средства по этому платежу?')) {
+        router.post(`/admin/payments/${props.payment.id}/refund`);
+    }
+};
 
 // Labels come from the backend option props — no enum duplicates in JS.
 const labelFrom = (options, value) => options.find((o) => o.value === value)?.label ?? value;
@@ -32,6 +44,19 @@ const formatDate = (value) => (value ? new Date(value).toLocaleDateString('ru-RU
             </Link>
         </div>
         <h1 class="text-2xl font-semibold text-gray-900 mb-6">Платёж #{{ payment.id }}</h1>
+
+        <p
+            v-if="page.props.status"
+            class="mb-4 px-4 py-3 bg-green-50 text-green-800 rounded-md text-sm"
+        >
+            {{ page.props.status }}
+        </p>
+        <p
+            v-if="error"
+            class="mb-4 px-4 py-3 bg-red-50 text-red-800 rounded-md text-sm"
+        >
+            {{ error }}
+        </p>
 
         <div class="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
             <div>
@@ -70,6 +95,15 @@ const formatDate = (value) => (value ? new Date(value).toLocaleDateString('ru-RU
             <div>
                 <p class="text-sm text-gray-500">External ID</p>
                 <p class="text-base text-gray-900 break-all">{{ payment.external_id }}</p>
+            </div>
+            <div v-if="payment.status === 'Succeeded'" class="pt-4 border-t border-gray-200">
+                <button
+                    type="button"
+                    class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                    @click="refund"
+                >
+                    Вернуть средства
+                </button>
             </div>
         </div>
 

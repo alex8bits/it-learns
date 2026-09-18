@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Services\Admin;
 
 use App\Enums\UserRole;
+use App\Models\Course;
 use App\Models\Payment;
 use App\Models\Subscription;
 use App\Models\User;
@@ -43,6 +44,9 @@ class AdminDashboardServiceTest extends TestCase
         User::factory()->count(3)->create();
         User::factory()->admin()->create();
         User::factory()->blocked()->create();
+        Course::factory()->count(2)->published()->create();
+        Course::factory()->create();
+        Course::factory()->archived()->create();
 
         $counters = app(AdminDashboardService::class)->counters();
 
@@ -51,7 +55,8 @@ class AdminDashboardServiceTest extends TestCase
         $this->assertSame(1, $counters['users_blocked']);
         $this->assertSame(0, $counters['premium_active']);
         $this->assertSame(0, $counters['payments_month']);
-        $this->assertSame(0, $counters['courses_published']);
+        // 2 published courses count; the draft and the archived one do not.
+        $this->assertSame(2, $counters['courses_published']);
     }
 
     public function test_premium_active_counts_in_force_subscriptions_including_cancelled(): void

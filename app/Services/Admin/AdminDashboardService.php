@@ -4,19 +4,17 @@ declare(strict_types=1);
 
 namespace App\Services\Admin;
 
+use App\Enums\CourseStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
+use App\Models\Course;
 use App\Models\Payment;
 use App\Models\Subscription;
 use App\Models\User;
 
 /**
  * Aggregates the headline counters shown on the admin dashboard.
- *
- * Only `courses_published` is pinned to `0`: the Course model and its
- * published flag land in Stage 5+, and the frontend renders a
- * "Запланировано в Этапе 5+" placeholder for that slot. Every other
- * counter is backed by a real query.
+ * Every counter is backed by a real query.
  */
 class AdminDashboardService
 {
@@ -48,7 +46,11 @@ class AdminDashboardService
                 ->where('status', PaymentStatus::Succeeded->value)
                 ->where('created_at', '>=', now()->startOfMonth())
                 ->count(),
-            'courses_published' => 0,
+            // Courses currently visible in the public catalog: drafts and
+            // archived courses do not count.
+            'courses_published' => Course::query()
+                ->where('status', CourseStatus::Published->value)
+                ->count(),
         ];
     }
 }

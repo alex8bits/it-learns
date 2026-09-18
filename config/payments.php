@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Services\Payments\DummyPaymentGateway;
+use App\Services\Payments\YooKassaPaymentGateway;
 
 return [
 
@@ -22,15 +23,38 @@ return [
     /*
     |--------------------------------------------------------------------------
     | Gateway Whitelist
+    |--------------------------------------------------------------------------
     |
-    | Whitelist of gateway implementations (the same pattern the future
-    | config/ai.php will follow). Adding a production gateway (Stage 3.1)
-    | = a new implementation class + one line here, nothing else changes.
+    | Whitelist of gateway implementations (the same pattern config/ai.php
+    | follows). `dummy` — fictitious gateway for dev/tests/demo;
+    | `yookassa` — the production gateway (Stage 9, direct HTTP via the
+    | Http facade, no SDK). Adding another gateway = a new implementation
+    | class + one line here, nothing else changes.
     |
     */
 
     'gateways' => [
         'dummy' => DummyPaymentGateway::class,
+        'yookassa' => YooKassaPaymentGateway::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | YooKassa Credentials
+    |--------------------------------------------------------------------------
+    |
+    | Merchant credentials for the production gateway (Stage 9), read at
+    | call time by YooKassaPaymentGateway (Basic auth shopId:secretKey).
+    | Required only when the active provider is `yookassa` — validated
+    | fail-loud on boot (AppServiceProvider). YooKassa has no webhook
+    | secret: notifications are re-verified through the API instead.
+    |
+    */
+
+    /** @var array{shop_id: string|null, secret_key: string|null} */
+    'yookassa' => [
+        'shop_id' => env('YOOKASSA_SHOP_ID'),
+        'secret_key' => env('YOOKASSA_SECRET_KEY'),
     ],
 
     /*

@@ -64,6 +64,12 @@ class CreateNewUser implements CreatesNewUsers
 
             $user->assignRole($role);
 
+            // Per-user LLM limit row must exist from the moment of
+            // registration (Stage 4 plan, item 6). Users registered
+            // before Stage 4 are not migrated: AiTokenUsageService
+            // treats a missing row as extra_tokens = 0.
+            $user->llmLimit()->create();
+
             return $user;
         });
     }

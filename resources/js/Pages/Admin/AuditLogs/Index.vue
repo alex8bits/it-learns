@@ -6,6 +6,7 @@ import { router } from '@inertiajs/vue3';
 const props = defineProps({
     logs: { type: Object, required: true },
     filters: { type: Object, default: () => ({}) },
+    actions: { type: Array, default: () => [] },
 });
 
 const applyFilter = (key, value) => {
@@ -25,9 +26,13 @@ const applyFilter = (key, value) => {
                     class="px-3 py-2 border border-gray-300 rounded-md"
                 >
                     <option value="">Все действия</option>
-                    <option value="UserRoleChanged">Смена роли</option>
-                    <option value="UserBlocked">Блокировка</option>
-                    <option value="UserUnblocked">Разблокировка</option>
+                    <option
+                        v-for="action in actions"
+                        :key="action.value"
+                        :value="action.value"
+                    >
+                        {{ action.label }}
+                    </option>
                 </select>
                 <input
                     :value="filters.admin_id ?? ''"

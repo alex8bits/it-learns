@@ -46,7 +46,7 @@
 - **Лимиты расхода токенов:**
   - **Глобальный лимит** на платформу (по умолчанию из `AI_TOKEN_LIMIT_GLOBAL_PER_DAY` в `.env` / `config/ai.php`).
   - **Per-user лимит** (по умолчанию из `AI_TOKEN_LIMIT_PER_USER_PER_DAY`).
-  - При исчерпании — запрос отклоняется с `HTTP 429`, без ретраев. Счётчики — в БД (`ai_token_usages`: `user_id`, `tokens`, `model`, `created_at`), агрегация за день.
+  - При исчерпании — сервисный слой бросает `AiLimitExceededException` (fail loud, без ретраев и без вызова провайдера); HTTP-слой (Этап 8) отражает его как `HTTP 429` (решение от 2026-09-14). Счётчики — в БД (`ai_token_usages`: `user_id`, `tokens`, `model`, `created_at`), агрегация за день.
   - **Админ может скорректировать лимит конкретного пользователя** через админку (ручное добавление токенов) — отдельная запись в `admin_audit_logs` (см. §8).
 - Все вызовы ИИ — только для премиум-подписчиков (`EnsurePremium` middleware, см. §3.5 и `AGENTS.md` правило №16).
 
@@ -58,7 +58,7 @@
 
 ```
 Курс (Course)
-└── Уровень (Level): Начальный → ... → Продвинутый
+└── Уровень (Level): название + порядок
     └── Урок (Lesson)
         ├── Материал урока (теория для чтения)
         ├── Теоретические задания (TheoryTask): вопрос + варианты ответа
@@ -70,9 +70,8 @@
 - Набор уровней.
 
 ### 3.2. Уровень
-- Название (Начальный / Средний / Продвинутый — enum `Level`).
-- Порядковый номер.
-- Набор уроков.
+- Название (свободное, уникально в пределах курса). Порядковый номер. Набор уроков.
+- Уровней в курсе может быть любое количество; уровни сложности (enum) убраны 2026-09-17.
 
 ### 3.3. Урок
 - Материал урока (читаемый контент).
@@ -86,16 +85,28 @@
 
 - Формат: **один вопрос + несколько вариантов ответа (radio button)**.
 - Один вариант правильный, остальные — нет.
+- Задачи выполняются **последовательно**: текущий вопрос — первый, на который
+  у пользователя ещё нет верного ответа.
 - При выборе **неправильного** варианта:
-  - показывается текст ошибки с описанием, почему именно этот вариант неверный.
+  - показывается `error_text` выбранного варианта — текст с описанием, почему
+    именно этот вариант неверный. **Правильный ответ не показывается** —
+    пользователь отвечает заново, пока не выберет верный вариант.
 - При выборе **правильного** варианта:
   - появляется возможность перейти к **следующему теоретическому вопросу**.
-- После последнего теоретического вопроса урока пользователь переходит к практическим заданиям.
+- После последнего теоретического вопроса урока пользователь переходит к практическим заданиям (практика — Этап 8 `progress-plan.md`; до него на месте практики заглушка).
+- Публикация: у задач и уроков есть флаг `is_published`; черновики недоступны
+  пользователю (404), ответы на них не принимаются.
+- Управление — через админку (CRUD заданий и вариантов внутри урока, audit-лог
+  `TheoryTaskCreated/Updated/Deleted`, см. §8). **Редактирование
+  теоретического задания сбрасывает ответы пользователей на него** (в том
+  числе при правке только текста вопроса): набор вариантов всегда
+  пересоздаётся целиком, а ответы удаляются каскадом по `option_id` —
+  вопрос нужно пройти заново.
 
 ### Доменная модель (минимум)
-- `TheoryTask` — принадлежит уроку, содержит вопрос, порядок.
-- `TheoryTaskOption` — принадлежит `TheoryTask`, текст варианта, флаг `is_correct`, текст ошибки (если выбран).
-- Хранится выбор пользователя: `UserTheoryTaskAnswer(user_id, theory_task_id, option_id)`.
+- `TheoryTask` — принадлежит уроку, содержит вопрос, порядок (`order`), флаг `is_published`.
+- `TheoryTaskOption` — принадлежит `TheoryTask`, текст варианта, флаг `is_correct`, `error_text` (nullable — только у неверных вариантов), порядок.
+- Хранится выбор пользователя: `UserTheoryTaskAnswer(user_id, theory_task_id, option_id, is_correct, answered_at)` — **один итоговый ответ** на задачу: unique `(user_id, theory_task_id)`, повторный ответ перезаписывает предыдущий (история попыток не хранится); `is_correct` — снимок на момент ответа.
 
 ---
 
@@ -141,6 +152,25 @@
   - При проверке попытки платформа нормализует результат студента **той же канонической сериализацией**, вычисляет хеш, сравнивает с эталоном.
   - Совпало — задание пройдено. Не совпало — показать diff (эталон vs попытка), студент видит, что не так.
 - **Рантаймы на старте:** только SQL через SQLite. Поддержка Bash/Python/Node — добавляется отдельными этапами, **когда появится контент** (зафиксировано в `platform-plan.md` Этап 5 «Открытые вопросы»).
+- **Реализация Docker-этапа (Этап 10 `progress-plan.md`, сдан):**
+  - Поддерживаемые рантаймы: **SQLite** (драйвер `local-sqlite`, in-process
+    файлы) + **MySQL 8 / PostgreSQL 16** (драйвер `docker`, официальные
+    образы `mysql:8`/`postgres:16`, кастомные образы запрещены).
+  - **Per-task runtime:** колонка `practice_tasks.runtime` (default
+    `sqlite`), выбирается в админ-CRUD; DTO `PracticeTaskInput` прокидывает
+    рантайм задачи в среду исполнения.
+  - Гварды docker-драйвера: `--network none` (сеть отрезана), лимиты
+    `--memory`/`--cpus`/`--pids-limit`, single-statement-гвард (общий
+    splitter с SQLite-драйвером), per-runtime blacklist метакоманд
+    (в т.ч. psql-метакоманды вида `\copy`), provision/execution-таймауты,
+    лимит размера результата, глобальные слоты конкурентности
+    (`practice.concurrency.max_environments`), pruner висящих контейнеров
+    по расписанию (`practice:prune-environments`).
+  - **Драйвер глобален на инсталляцию** (`PRACTICE_DRIVER`): смешанный
+    sqlite+mysql контент в одной инсталляции невозможен — несоответствие
+    драйвера и рантайма задачи = fail loud (ошибка конфигурации
+    контента, HTTP 500), а не студенческая ошибка.
+  - Python/Bash — по-прежнему отложены до появления контент-плана.
 
 ### Доменная модель (минимум)
 - `PracticeTask` — принадлежит уроку, текст задания, ожидаемый результат (структура сравнения), среда/образ для исполнения, таймаут.
@@ -154,7 +184,7 @@
 Платформа хранит **текущее состояние курсов для пользователя** на всех уровнях иерархии:
 
 - Прогресс по **курсу** в целом.
-- Прогресс по каждому **уровню** внутри курса.
+- Прогресс по каждому **уровню** внутри курса (отдельно не хранится — выводится из прогресса уроков уровня).
 - Прогресс по каждому **уроку** внутри уровня.
 - Прогресс по **заданиям** внутри урока (теоретическим и практическим).
 
@@ -163,9 +193,25 @@
 - Отображать, что пройдено полностью, что в процессе.
 - Показывать, по каким подчиненным сущностям курса есть незавершённость.
 
+Правила (реализовано, Этап 7):
+
+- Статусы — enum'ы `CourseProgressStatus` и `LessonProgressStatus` (обе:
+  `InProgress` | `Completed`); «не начат» — отсутствие записи.
+- **Правило завершения урока** инкапсулировано в одном месте —
+  `App\Services\Progress\LessonCompletionChecker`: урок считается
+  пройденным, когда **все опубликованные теоретические задачи урока
+  отвечены верно**. Урок без опубликованных задач не завершается
+  (до Этапа 8 — практика расширит правило в этом же классе).
+- Процент прохождения курса **вычисляется на чтении**: завершённые
+  опубликованные уроки / все опубликованные уроки (колонки `percent` нет).
+- Возобновление: `current_lesson_id` — указатель «где остановился»;
+  «Начать курс» и «Продолжить» — один эндпоинт (`StartCourse`):
+  первый незавершённый опубликованный урок в порядке уровней/уроков
+  (если всё пройдено — первый урок курса).
+
 ### Доменная модель (минимум)
-- `UserCourseProgress(user_id, course_id, status, current_level_id, current_lesson_id, percent)`
-- `UserLessonProgress(user_id, lesson_id, status, completed_at)`
+- `UserCourseProgress(user_id, course_id, status, current_lesson_id)` — unique `(user_id, course_id)`; `current_lesson_id` — FK nullable (обнуляется при удалении урока, строка прогресса сохраняется). Без `percent` (вычисляется на чтении) и без `current_level_id` (уровень выводится из урока).
+- `UserLessonProgress(user_id, lesson_id, status, started_at, completed_at)` — unique `(user_id, lesson_id)`.
 - `UserTheoryTaskAnswer` (см. §4)
 - `PracticeTaskSubmission` (см. §5.4)
 
@@ -209,15 +255,16 @@
 
 #### 9.2.3. Курсы
 - CRUD курсов: создание, редактирование, удаление, публикация/снятие с публикации.
+- **Порядок курсов в каталоге** — поле `courses.sort_order` (int, default 0), редактируется в админ-форме курса («Порядок в каталоге»). Каталог (web, дашборд, API v1) сортируется `sort_order ASC, created_at DESC`; `0` = «по дате» (legacy-поведение всех курсов без явного порядка). В публичный API-шейп поле не экспонируется. Аудит — существующими кейсами `CourseCreated`/`CourseUpdated`.
 - Управление структурой курса:
   - Уровни (CRUD, порядок).
   - Уроки внутри уровня (CRUD, порядок).
   - Материал урока (редактор контента).
   - Теоретические задания урока: вопрос, варианты ответа, правильный вариант, тексты ошибок для неправильных.
   - Практические задания урока: текст задания, ожидаемый результат, образ/среда исполнения, таймаут.
-  - **Превью-картинка курса** — загрузка через админку (multipart upload), хранение в `Storage::disk('public')` (`storage/app/public/courses/previews/{uuid}.{ext}`), путь хранится в `courses.preview_image_path` (string, nullable). Валидация в FormRequest: `mimes:jpg,jpeg,png,webp`, `max:2048` КБ, `dimensions:min_width=200,min_height=200`. **Ресайз до 1200×630** + WebP-конверсия + удаление EXIF — отдельный job (через очередь, не блокирует запрос). В будущем переход на S3 — замена диска в `config/filesystems.php`, без правок кода.
-  - **Уточняющий AI-промпт курса** — поле `courses.ai_course_prompt` (longtext, nullable), редактируется в той же форме, что и курс. Дополняет общий системный промпт при вызовах LLM (см. §9.2.4).
-- Предпросмотр курса «глазами пользователя» (без влияния на прогресс).
+  - **Превью-картинка курса** — загрузка через админку (multipart upload), хранение в `Storage::disk('public')` (`storage/app/public/courses/previews/{uuid}.{ext}`), путь хранится в `courses.preview_image_path` (string, nullable). Валидация в FormRequest: `mimes:jpg,jpeg,png,webp`, `max:2048` КБ, `dimensions:min_width=200,min_height=200`. **Ресайз до 1200×630** (fit, без апскейла) + ре-энкод с удалением EXIF — синхронно в Action (GD); после коммита queue-job `ConvertCoursePreviewToWebp` конвертирует файл в WebP (GD, q82) и переключает `preview_image_path` (идемпотентен; без запущенного воркера превью остаётся в исходном валидном формате — graceful-деградация). В будущем переход на S3 — замена диска в `config/filesystems.php`, без правок кода.
+  - **Уточняющий AI-промпт курса** — поле `courses.ai_course_prompt` (longtext, nullable; кэш активной версии, источник истины — `ai_prompt_versions`), редактируется на отдельной странице админки `/admin/courses/{course}/prompt` (не в форме курса). Дополняет общий системный промпт при вызовах LLM (см. §9.2.4).
+- **Предпросмотр курса «глазами пользователя»** (реализовано, Этап 11 `progress-plan.md`): read-only GET-роуты в админке `/admin/courses/{course}/preview` и `/admin/courses/{course}/preview/lessons/{lesson}` рендерят те же пользовательские Vue-страницы (`Courses/Show` / `Lessons/Show`) с пропом `previewMode` — баннер «режим предпросмотра», все действия (начать/продолжить курс, ответы на теорию, практика, ИИ) скрыты, контент показывается read-only. Черновики курса и уроков видны (без published-гейта, с бейджем «черновик»); прогресс не пишется (POST-роутов нет по построению); `is_correct` вариантов не покидает сервер (те же spoiler-гварды, что у студента). Доступ — `role:admin` + `CoursePolicy::preview`; audit не пишется (read-only операция, ничего не меняет).
 - Версионирование/история изменений контента — на усмотрение, зафиксировать как открытый вопрос (см. §9).
 
 #### 9.2.4. Промпты ИИ
@@ -230,18 +277,18 @@
   - При отсутствии уточняющего — используется только общий. При наличии — `PromptResolver` склеивает `global + "\n\n" + course`.
   - **Никаких** таблиц `ai_prompts` / `ai_course_prompts` — проще, меньше сущностей, легче администрировать.
 - Поля таблицы `settings`: `id`, `key` (string, unique), `value` (longtext), `updated_by` (FK users nullable), timestamps. Универсальная key/value-таблица для глобальных настроек платформы.
-- Редактирование общего промпта — через `Admin\GlobalPromptController@edit`/`update`, `FormRequest` `AdminUpdateGlobalPromptRequest` (валидация `value` не пустой). Операция попадает в `admin_audit_logs` с `action = GlobalPromptUpdated`.
-- Редактирование уточняющего промпта курса — через `Admin\CourseController@update` (поле `ai_course_prompt` идёт в `meta` audit-записи при изменении).
+- Редактирование общего промпта — через `Admin\GlobalPromptController@edit`/`update`, `FormRequest` `AdminUpdateGlobalPromptRequest` (валидация `body` не пустой). Операция попадает в `admin_audit_logs` с `action = PromptVersionCreated`.
+- Редактирование уточняющего промпта курса — через `Admin\CoursePromptController@edit`/`update` (зеркало глобального промпта): отдельная страница `/admin/courses/{course}/prompt`, `update` вызывает `PromptVersionService::createNewVersion('course.{id}.ai_course_prompt', ...)` и пишет audit-запись с `action = PromptVersionCreated`; история — `/admin/prompts/history?key=course.{id}.ai_course_prompt`. При создании курса с непустым промптом (`AdminCreateCourseRequest`) создаётся первая версия через тот же сервис; при обновлении курса промпт формой не отправляется — его изменение только через отдельную страницу.
 - **Версионирование промптов (зафиксировано — вариант A, полная история в БД):**
   - Каждое изменение промпта (общего или per-course) создаёт **новую запись** в таблице `ai_prompt_versions`. Старая версия остаётся в истории, **никогда не перезаписывается**.
   - Поля таблицы: `id`, `prompt_key` (string — `'ai.global_system_prompt'` или `course.{id}.ai_course_prompt`), `body` (longtext), `version_number` (int, автоинкремент в пределах `prompt_key`), `comment` (text nullable — зачем меняли), `created_by` (FK users), `created_at` (timestamp), `meta` (json nullable — модель, метрики, в перспективе).
   - **«Активная» версия = `MAX(version_number) WHERE prompt_key = ?`.** Без отдельной колонки-указателя — проще, всегда согласовано. `settings.ai.global_system_prompt` и `courses.ai_course_prompt` теперь **кэшируют** активный текст для быстрого чтения `PromptResolver`'ом (на случай частых вызовов), но источник истины — `ai_prompt_versions`.
   - **Откат** = создание новой версии с текстом старой (`version_number` инкрементируется, `comment = 'Rollback to v{N}'`). Никаких «указателей на прошлые версии» — линейная история, всегда `MAX`.
-  - **Сервис `App\Services\Ai\PromptVersionService`:** метод `createNewVersion(string $promptKey, string $body, ?string $comment, User $author): AiPromptVersion` — атомарно (`DB::transaction`): вычисляет `MAX(version_number)` для ключа, создаёт новую запись с `+1`, обновляет «кэш» в `settings` / `courses`, пишет в `admin_audit_logs` (`action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`).
+  - **Сервис `App\Services\Ai\PromptVersionService`:** метод `createNewVersion(string $promptKey, string $body, ?string $comment, User $author): AiPromptVersion` — атомарно (`DB::transaction`): вычисляет `MAX(version_number)` для ключа, создаёт новую запись с `+1`, обновляет кэш (`settings` для глобального ключа; кэш-цель course-ключей — Этап 6), пишет в `admin_audit_logs` (`action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`).
   - **UI «История» в админке:** отдельная страница `/admin/prompts/history?key=...` со списком версий (дата, автор, версия, комментарий, кнопка «Сделать активной»). Без diff-инструмента на старте (просто показать обе версии текстом рядом, как plain-text).
-  - **Без** предпросмотра ответа LLM и без A/B-тестирования — это отдельный этап.
+  - Предпросмотр ответа LLM реализован playground'ом (см. последний пункт секции); **без A/B-тестирования** — открытый вопрос (см. §9).
   - Применяется к **обоим** промптам: Global (`ai.global_system_prompt`) и per-course (`course.{id}.ai_course_prompt`).
-- Тестовый запуск промпта из админки («отправить пример запроса и посмотреть ответ модели») — желательно, но не обязательно с первого дня; фиксируется как открытый вопрос (см. §9).
+- **Тестовый запуск промпта (playground)** — реализовано (Этап 11 `progress-plan.md`): страница `/admin/prompts/playground` — отправка тестового сообщения к активному `LlmClient` с опциональным выбором курса (уточняющий промпт выбранного курса подставляется через `PromptResolver`). Полный лимит-пайплайн как у студенческих сценариев: guard → resolve → complete → `DB::transaction` { recordUsage (`AiTokenUsageAction::Playground`) + audit `PromptPlaygroundRun` }; `throttle:ai-playground` 5/min per-user; обхода лимитов для админов нет (429 при исчерпании, бюджет поднимается существующим механизмом корректировки LLM-лимита).
 
 #### 9.2.5. Провайдер ИИ
 - **Архитектура:** интерфейс `App\Services\Ai\LlmClient` с методом `complete(string $systemPrompt, string $userMessage, array $options = []): LlmResponse`. Конкретная реализация выбирается через DI по конфигу, **единый** активный провайдер на всю платформу (single-tenant).
@@ -256,6 +303,8 @@
   - `AI_API_KEY` — единый API-ключ для активного провайдера (хранится в `.env`, **не** в БД — single-tenant).
   - `AI_MODEL` — название модели (например, `gpt-4o-mini`, `claude-3-5-sonnet-latest`, и т.п.).
   - Для `openai_compatible`: дополнительно `AI_BASE_URL` — базовый URL endpoint'а.
+  - `AI_TOKEN_LIMIT_GLOBAL_PER_DAY` / `AI_TOKEN_LIMIT_PER_USER_PER_DAY` — дневные лимиты токенов (глобальный / на пользователя, см. §2.3), дефолты `100000` / `5000`.
+  - `AI_LOG_FULL_PROMPTS` — полный текст промпта/ответа в логи `ai.llm_call` (по умолчанию `false`; только для dev — риск утечки и раздувание storage).
 - **Переключение провайдера:** админ/деплойщик меняет `.env` → `php artisan config:clear` (или рестарт). UI в админке для выбора провайдера **не предусмотрен** (single-tenant: деплой и настройка инфраструктуры — отдельный процесс).
 - **Валидация URL для `openai_compatible`:** на старте приложения валидируется формат URL и блокируются внутренние адреса (`localhost`, `127.0.0.1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) — защита от SSRF.
 - **Что остаётся в админке (см. §9.2.4):** только **промпты** (общий + per-course). Провайдер и ключи — инфраструктурная конфигурация, не бизнес-сущность.
@@ -268,7 +317,7 @@
 
 ### 9.4. Аудит-лог админ-операций (обязателен)
 - **Таблица `admin_audit_logs`:** `id`, `admin_id` (FK users), `action` (enum `AdminAuditAction`), `subject_type` (string), `subject_id` (bigint nullable), `meta` (json), `ip` (string nullable), `user_agent` (string nullable), `created_at`.
-- **Enum `AdminAuditAction`** (минимум, расширяется по мере появления операций): `UserRoleChanged`, `UserBlocked`, `UserUnblocked`, `UserLlmLimitAdjusted`, `CourseCreated`, `CourseUpdated`, `CoursePublished`, `CourseArchived`, `LessonCreated`, `LessonUpdated`, `TheoryTaskUpdated`, `PracticeTaskUpdated`, `PromptUpdated`, `PaymentRefunded`, `PaymentManuallyMarked`.
+- **Enum `AdminAuditAction`** (реализовано 24 кейса — Этапы 2–11; расширяется по мере появления операций): `UserRoleChanged`, `UserBlocked`, `UserUnblocked`, `UserLlmLimitAdjusted`, `PromptVersionCreated`, `PromptPlaygroundRun`, `CourseCreated`, `CourseUpdated`, `CoursePublished`, `CourseArchived`, `CourseDeleted`, `LevelCreated`, `LevelUpdated`, `LevelDeleted`, `LessonCreated`, `LessonUpdated`, `LessonDeleted`, `TheoryTaskCreated`, `TheoryTaskUpdated`, `TheoryTaskDeleted`, `PracticeTaskCreated`, `PracticeTaskUpdated`, `PracticeTaskDeleted`, `PaymentRefunded`. Будущие (ещё не реализованы): `PaymentManuallyMarked`.
 - **Когда пишется:** внутри `DB::transaction` той же операции, либо через `AdminAuditObserver` на модели. **Нельзя** выполнить админ-операцию без записи в audit-log.
 - **Просмотр в админке:** отдельный раздел `/admin/audit-logs` с фильтрами по `admin_id`, `action`, `subject_type`, периоду. Только чтение, удаление/правка логов запрещены.
 - **Unit-покрытие:** каждый Action/observer, пишущий в audit-log, должен тестироваться на корректность записи (поля, JSON-мета, связь с `admin_id`).
@@ -290,7 +339,7 @@
 Агенты не должны «дорешивать» их за пользователя — фиксировать как TODO
 и поднимать в диалоге.
 
-- Платёжный провайдер для премиум-подписки.
+- ~~Платёжный провайдер для премиум-подписки~~ — закрыто: **ЮKassa** (Этап 9 `progress-plan.md`): реализация `YooKassaPaymentGateway` (прямой HTTP, без SDK) + whitelist в `config/payments.php` (`PAYMENT_PROVIDER=yookassa`, креденшалы `YOOKASSA_SHOP_ID`/`YOOKASSA_SECRET_KEY`), активация только через webhook с верификацией re-fetch'ем; остальные провайдеры — вне текущего плана.
 - ~~Конкретная технология изоляции среды для практики (контейнеры, ephemeral DB-снапшоты, отдельные схемы и т.п.) — выбор за пользователем~~ — закрыто: на старте SQLite-файлы (in-process), в проде — Docker отдельным этапом (см. §5.4 и `platform-plan.md` Этап 5).
 - ~~Формат «ожидаемого результата» для практики: эталонный SQL vs структура выборки vs текстовая нормализация~~ — закрыто: хеш-эталон + `CanonicalResultSerializer` (см. §5.4).
 - Глубина персонализации ИИ: только фидбэк/генерация, или ещё подсказки по ходу урока.
@@ -300,6 +349,6 @@
 - ~~Хранение промптов: одна таблица с `scope` или две отдельные (`ai_prompts` + `ai_course_prompts`)~~ — закрыто: **общий в `settings` (key/value), уточняющий как поле `courses.ai_course_prompt`** (см. §9.2.4).
 - Версионирование/история изменений контента курсов.
 - ~~Версионирование промптов ИИ~~ — закрыто: вариант A, таблица `ai_prompt_versions`, `MAX(version_number)` = активная, откат через создание новой версии (см. §9.2.4).
-- Тестовый запуск промпта прямо из админки.
+- ~~Тестовый запуск промпта прямо из админки~~ — закрыто: **playground** (Этап 11 `progress-plan.md`): страница `/admin/prompts/playground` — тестовый вызов активного `LlmClient` с опциональным course-промптом, полный лимит-пайплайн + audit `PromptPlaygroundRun` (см. §9.2.4).
 - Аудит-лог админ-операций: с первого дня или отложенно.
 - Возможность «супер-админа» (изменение ролей других админов) — нужна ли отдельная роль или достаточно доверия текущим админам.

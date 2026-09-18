@@ -40,11 +40,28 @@ class HandleInertiaRequests extends Middleware
     /**
      * Define the props that are shared by default.
      *
-     * Flash `status` (e.g. from Fortify's forgot-password /
-     * reset-password redirects) is resolved lazily, so plain GETs without
-     * flash data do not touch the session. `is_premium` is likewise lazy
-     * and only evaluated for authenticated users, so guest requests never
-     * hit the database for it.
+     * This middleware is appended to the `web` group (bootstrap/app.php),
+     * i.e. after StartSession — that placement is what makes the eagerly
+     * resolved `errors` from `parent::share()` see the flashed validation
+     * errors. A global-stack placement instead computes it before the
+     * session starts and every page silently renders with empty errors.
+     *
+     * `status` and `auth` stay lazy closures: route-level `auth` middleware
+     * runs after the group middleware, so `$request->user()` is not reliably
+     * populated when `share()` itself executes — closures are evaluated by
+     * the props resolver at render time instead, when the user resolver is
+     * attached — an eagerly evaluated `auth.user` would serialize
+     * `{"user": null}` to pages with route auth.
+     *
+     * `is_premium` is computed eagerly inside the `auth` closure, not as a
+     * nested closure: the laziness of `auth` alone guarantees the
+     * subscription query runs only for authenticated users and only at
+     * render time (guest requests never hit SubscriptionService). Note that
+     * this version of inertia-laravel would resolve nested closures too
+     * (`PropsResolver::resolveProps()` recurses into arrays returned by
+     * closures and passes every child through `resolveCallable`), but a
+     * single level of laziness keeps the shared shape independent of that
+     * resolver implementation detail.
      *
      * @see https://inertiajs.com/shared-data
      *
@@ -52,18 +69,16 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
-        $user = $request->user();
-
         return [
             ...parent::share($request),
             'status' => fn () => $request->session()->get('status'),
-            'auth' => [
-                'user' => $user ? array_merge(
+            'auth' => fn () => [
+                'user' => ($user = $request->user()) ? array_merge(
                     $user->only(['id', 'name', 'email']),
                     [
                         'roles' => $user->getRoleNames()->all(),
                         'is_blocked' => (bool) $user->is_blocked,
-                        'is_premium' => fn () => $this->subscriptions->isActive($user),
+                        'is_premium' => $this->subscriptions->isActive($user),
                     ],
                 ) : null,
             ],

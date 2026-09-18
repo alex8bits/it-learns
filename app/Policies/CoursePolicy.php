@@ -4,44 +4,69 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Enums\UserRole;
+use App\Models\Course;
 use App\Models\User;
 
 /**
- * Stub Policy for the not-yet-existing `Course` model.
- *
- * Stage 2 ships a placeholder `CourseController@index`/`show` page
- * without any CRUD. Every ability here returns `false` so that no
- * guest, regular user, or even admin can perform course actions
- * until Stage 5+ fills the Policy in.
- *
- * The `?User` parameter accepts guests without a TypeError, and
- * `mixed $course` avoids referencing a model class that does not
- * exist yet.
+ * Admin-only course management (Stage 6). Public browsing of
+ * published courses is NOT authorized through this policy: public
+ * catalog routes filter by the `published` scope, and courses that
+ * are not published (draft/archived) resolve to 404 instead.
  */
 class CoursePolicy
 {
-    public function viewAny(?User $user): bool
+    /**
+     * Admin can browse the admin course list.
+     */
+    public function viewAny(User $user): bool
     {
-        return false;
+        return $this->isAdmin($user);
     }
 
-    public function view(?User $user, mixed $course): bool
+    /**
+     * Admin can view any course, including drafts and archived ones.
+     */
+    public function view(User $user, Course $course): bool
     {
-        return false;
+        return $this->isAdmin($user);
     }
 
-    public function create(?User $user): bool
+    /**
+     * Admin can create courses.
+     */
+    public function create(User $user): bool
     {
-        return false;
+        return $this->isAdmin($user);
     }
 
-    public function update(?User $user, mixed $course): bool
+    /**
+     * Admin can update any course.
+     */
+    public function update(User $user, Course $course): bool
     {
-        return false;
+        return $this->isAdmin($user);
     }
 
-    public function delete(?User $user, mixed $course): bool
+    /**
+     * Admin can delete courses.
+     */
+    public function delete(User $user, Course $course): bool
     {
-        return false;
+        return $this->isAdmin($user);
+    }
+
+    /**
+     * Admin can preview the course as a student sees it — including
+     * unpublished content, strictly read-only (no progress writes).
+     */
+    public function preview(User $user, Course $course): bool
+    {
+        return $this->isAdmin($user);
+    }
+
+    private function isAdmin(User $user): bool
+    {
+        return $user->hasRole(UserRole::Admin->value);
     }
 }

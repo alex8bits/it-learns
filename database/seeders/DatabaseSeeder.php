@@ -20,6 +20,9 @@ class DatabaseSeeder extends Seeder
             RolesAndPermissionsSeeder::class,
             AdminSeeder::class,
             UserSeeder::class,
+            AiPromptSeeder::class,
+            DemoCourseSeeder::class,
+            MysqlCourseSeeder::class,
         ]);
     }
 }

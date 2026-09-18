@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\CourseController;
 use App\Http\Controllers\Api\V1\HealthController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,4 +24,14 @@ use Illuminate\Support\Facades\Route;
  */
 Route::prefix('v1')->name('api.v1.')->group(function (): void {
     Route::get('/health', HealthController::class)->name('health');
+
+    /*
+     * Public course catalog (Stage 6, design decision #3): read-only,
+     * guest-accessible, no throttle — the same documented reasoning as
+     * /health above (cheap stateless reads, no side effects).
+     */
+    Route::get('/courses', [CourseController::class, 'index'])->name('courses.index');
+    Route::get('/courses/{slug}', [CourseController::class, 'show'])
+        ->where('slug', '[a-z0-9-]+')
+        ->name('courses.show');
 });

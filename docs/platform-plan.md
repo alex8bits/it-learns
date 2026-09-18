@@ -262,16 +262,17 @@
      - `'ai.global_system_prompt'` — общий системный промпт.
      - `course.{id}.ai_course_prompt` — уточняющий промпт курса.
    - **Никаких** таблиц `ai_prompts` / `ai_course_prompts` — проще, меньше сущностей, легче администрировать.
+   - *Реализация: кэш-цель course-ключей (`courses.ai_course_prompt`) и `CoursePromptController` подключаются в Этапе 6 вместе с таблицей `courses`; в Этапе 4 `PromptVersionService` generic по `prompt_key`, кэш реализован для `ai.global_system_prompt` (решение от 2026-09-14).*
 3. **Миграции:**
    - **`ai_prompt_versions`:** `id`, `prompt_key` (string), `body` (longtext), `version_number` (int, автоинкремент в пределах `prompt_key`), `comment` (text nullable), `created_by` (FK users), `meta` (json nullable), `created_at` (timestamp). Индексы по `(prompt_key, version_number)` (уникальный) и `created_at`.
    - `settings`: `id`, `key` (string, unique), `value` (longtext), `updated_by` (FK users nullable), timestamps. Универсальная key/value-таблица для «глобальных настроек» платформы (промпт, лимиты по умолчанию и т.п.). Первый сидер создаёт запись `key = 'ai.global_system_prompt'` с дефолтным значением **и** первую запись в `ai_prompt_versions` с `version_number = 1`.
    - `courses` (в Этапе 6) получает поле `ai_course_prompt` (longtext, nullable) — добавляется миграцией, когда Этап 6 начнётся. Создание курса с уточняющим промптом = создание первой версии в `ai_prompt_versions`.
 4. **Сервисный слой:**
    - **`PromptVersionService`** (см. `concept.md §9.2.4`):
-     - `createNewVersion(string $promptKey, string $body, ?string $comment, User $author): AiPromptVersion` — в `DB::transaction`: вычисляет `MAX(version_number) WHERE prompt_key = ?`, создаёт новую запись с `+1`, обновляет «кэш» в `settings` / `courses`, пишет в `admin_audit_logs` (`action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`).
-     - `rollbackTo(int $versionId, ?string $comment, User $author): AiPromptVersion` — достаёт старую версию, вызывает `createNewVersion` с её `body` и `comment = 'Rollback to v{N}'`. Никаких «указателей на прошлое» — линейная история.
+     - `createNewVersion(string $promptKey, string $body, ?string $comment, User $author): AiPromptVersion` — в `DB::transaction`: вычисляет `MAX(version_number) WHERE prompt_key = ?`, создаёт новую запись с `+1`, обновляет кэш (для `ai.global_system_prompt` — строка `settings`; кэш-цель course-ключей — Этап 6), пишет в `admin_audit_logs` (`action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`).
+     - `rollbackTo(AiPromptVersion $version, User $author): AiPromptVersion` — принимает модель (route model binding), вызывает `createNewVersion` с её `body` и `comment = 'Rollback to v{N}'`. Никаких «указателей на прошлое» — линейная история (решение от 2026-09-14).
      - `getHistory(string $promptKey, int $limit = 50): Collection` — все версии по ключу, newest first.
-   - `PromptResolver` (Action) — обновлён: читает активный текст из `settings` / `courses.ai_course_prompt` (кэш), не из `ai_prompt_versions` напрямую. Склеивает `global + "\n\n" + course` если оба есть.
+   - `PromptResolver` — глобальный текст читает из кэша `settings`, course-текст получает параметром от вызывающего (в Этапе 4 — DTO сценарных сервисов, с Этапа 6 — `courses.ai_course_prompt`), не из `ai_prompt_versions` напрямую. Склеивает `global + "\n\n" + course` если оба есть.
    - Интерфейс `App\Services\Ai\LlmClient` с методом `complete(string $systemPrompt, string $userMessage, array $options = []): LlmResponse`. Биндится в DI как singleton по конфигу `config('ai.provider')`.
    - **Реализации на старте (whitelist):**
      - `OpenAiLlmClient` — OpenAI API (`gpt-4o-mini` и аналоги).
@@ -279,53 +280,57 @@
      - `MiniMaxLlmClient` — MiniMax (контракт фиксируется при подключении).
      - `OpenAiCompatibleLlmClient` — для любого OpenAI-совместимого endpoint'а (локальные модели через Ollama/vLLM, прокси, региональные сервисы). Использует `AI_BASE_URL` из конфига.
      - `DummyLlmClient` — для dev/тестов: возвращает предсказуемый ответ, без HTTP.
-   - `PromptResolver` (Action) — собирает финальный system-пrompt: берёт активный Global + (если есть) активный Course-специфичный, склеивает по правилу.
-   - `AiFeedbackService` — `generateFeedbackFor(PracticeTaskSubmission $submission): string`. Использует `PromptResolver` + шаблон промпта для фидбэка.
-   - `AiTaskGeneratorService` — `generateExtraTask(PracticeTask $task): array` (текст задания + ожидаемый результат).
+   - `PromptResolver` — собирает финальный system-prompt: берёт активный Global + (если есть) активный Course-специфичный, склеивает по правилу.
+   - `AiFeedbackService` — `generateFeedback(FeedbackInput $input, User $user): string`. Использует `PromptResolver` + шаблон промпта для фидбэка.
+   - `AiTaskGeneratorService` — `generateExtraTask(ExtraTaskInput $input, User $user): GeneratedExtraTask` (readonly-DTO: текст задания + ожидаемый результат).
+   - DTO на примитивах (`FeedbackInput`: taskText / expectedResult / submittedSolution / errorMessage + `?coursePrompt`; `ExtraTaskInput`: taskText / expectedResult + `?coursePrompt`); Этап 8 строит их из `PracticeTaskSubmission` (решение от 2026-09-14).
 5. **Конфигурация (`config/ai.php`):**
    - `provider` → enum `AiProvider`, по умолчанию `Dummy`.
    - `api_key` → строка из `AI_API_KEY` (обязательна для всех, кроме `Dummy`).
    - `model` → строка из `AI_MODEL` (например, `gpt-4o-mini`).
    - `base_url` → строка из `AI_BASE_URL` (только для `OpenAiCompatible`; обязательна).
-   - `token_limit_global_per_day` → int из `AI_TOKEN_LIMIT_GLOBAL_PER_DAY` (по умолчанию, например, `100000`).
-   - `token_limit_per_user_per_day` → int из `AI_TOKEN_LIMIT_PER_USER_PER_DAY` (по умолчанию, например, `5000`).
-   - **Валидация на старте приложения** (`AppServiceProvider::boot()` или отдельный `AiConfigValidator`): формат URL, блокировка внутренних адресов для `OpenAiCompatible` (`localhost`, `127.0.0.1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) — защита от SSRF.
+   - `token_limit_global_per_day` → int из `AI_TOKEN_LIMIT_GLOBAL_PER_DAY` (по умолчанию `100000`).
+   - `token_limit_per_user_per_day` → int из `AI_TOKEN_LIMIT_PER_USER_PER_DAY` (по умолчанию `5000`).
+   - `log_full_prompts` → bool из `AI_LOG_FULL_PROMPTS` (по умолчанию `false`) — полный текст промпта/ответа в логи, только для dev.
+   - **Валидация на старте приложения** (отдельный `AiConfigValidator`, вызывается из `AppServiceProvider`): формат URL, блокировка внутренних адресов для `OpenAiCompatible` (`localhost`, `127.0.0.1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) — защита от SSRF.
 6. **Лимиты токенов (правило №16 `AGENTS.md`):**
    - **Миграция `ai_token_usages`:** `id`, `user_id` (FK), `model` (string), `tokens` (int), `action` (enum `AiTokenUsageAction` { Feedback, ExtraTask }), `created_at`. Индексы по `user_id`, `created_at` (для агрегации за день).
    - **Миграция `user_llm_limits`:** `user_id` (FK, primary), `extra_tokens` (int, default 0) — ручное добавление админом поверх дефолтного лимита. При создании пользователя запись создаётся автоматически.
-   - **`AiTokenUsageService`** — `recordUsage(User, int $tokens, AiTokenUsageAction $action): void` пишет в `ai_token_usages`. `usedToday(User): int` агрегирует за сегодня. `remainingForUserToday(User): int` = `default_limit + extra_tokens - usedToday`. `remainingGlobalToday(): int` = `global_limit - sum(used today)`.
-   - **`AiLimitGuard`** — middleware-обёртка (или вызов в `AiFeedbackService`/`AiTaskGeneratorService`): проверяет `remainingForUserToday > 0` **и** `remainingGlobalToday > 0` перед каждым вызовом `LlmClient`. При исчерпании — `HTTP 429`, без ретраев. **Fail loud**: лучше отказать в вызове, чем молчаливо превысить лимит.
-   - **Интеграция в `AiFeedbackService`/`AiTaskGeneratorService`:** каждый вызов обёрнут в `AiLimitGuard::check()` → `LlmClient::complete()` → `AiTokenUsageService::recordUsage()` (по фактическим потраченным токенам, если провайдер отдаёт, иначе — оценка `strlen`).
+   - **`AiTokenUsageService`** — `recordUsage(User, int $tokens, AiTokenUsageAction $action, string $model): void` пишет в `ai_token_usages`. `usedToday(User): int` агрегирует за сегодня. `remainingForUserToday(User): int` = `default_limit + extra_tokens - usedToday`. `remainingGlobalToday(): int` = `global_limit - sum(used today)`.
+   - **`AiLimitGuard`** — middleware-обёртка (или вызов в `AiFeedbackService`/`AiTaskGeneratorService`): проверяет `remainingForUserToday > 0` **и** `remainingGlobalToday > 0` перед каждым вызовом `LlmClient`. При исчерпании — `AiLimitExceededException` (HTTP-слой отразит как `429` — Этап 8; решение от 2026-09-14), без ретраев. **Fail loud**: лучше отказать в вызове, чем молчаливо превысить лимит.
+   - **Интеграция в `AiFeedbackService`/`AiTaskGeneratorService`:** каждый вызов обёрнут в `AiLimitGuard::ensureQuotaAvailable()` → `LlmClient::complete()` → `AiTokenUsageService::recordUsage()` (по фактическим потраченным токенам, если провайдер отдаёт, иначе — оценка `strlen`).
    - **Unit-покрытие:** `AiLimitGuard` (лимит не исчерпан / глобальный исчерпан / пользовательский исчерпан / ручное добавление через `extra_tokens`), `AiTokenUsageService` (агрегация за день, корректная запись), `AiFeedbackService`/`AiTaskGeneratorService` (проверка лимита перед вызовом, запись после).
 7. **Контроллеры админки (только для промптов и LLM-лимитов):**
    - `Admin\GlobalPromptController@edit`/`update` — редактирование **общего** системного промпта. Через `FormRequest` (`AdminUpdateGlobalPromptRequest` с валидацией `body` не пустой, `comment` опционально). `update` вызывает `PromptVersionService::createNewVersion('ai.global_system_prompt', $body, $comment, $user)`, обновляющий кэш в `settings` и пишущий audit-log. **Не пишет напрямую в `settings`** — только через сервис.
-   - `Admin\CoursePromptController@edit`/`update` — редактирование **уточняющего** промпта курса (поле `courses.ai_course_prompt`). Через `FormRequest` (`AdminUpdateCoursePromptRequest` с валидацией `body` не пустой, `comment` опционально). `update` вызывает `PromptVersionService::createNewVersion('course.{id}.ai_course_prompt', ...)`. Audit-log: `action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`.
+   - `Admin\CoursePromptController@edit`/`update` — редактирование **уточняющего** промпта курса (поле `courses.ai_course_prompt`). **Перенесено в Этап 6** вместе с миграцией `courses.ai_course_prompt`; в Этапе 4 сервис generic по `prompt_key` (решение от 2026-09-14). Через `FormRequest` (`AdminUpdateCoursePromptRequest` с валидацией `body` не пустой, `comment` опционально). `update` вызывает `PromptVersionService::createNewVersion('course.{id}.ai_course_prompt', ...)`. Audit-log: `action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`.
    - `Admin\PromptHistoryController@index` — **просмотр истории версий**. URL: `/admin/prompts/history?key=ai.global_system_prompt` или `?key=course.{id}.ai_course_prompt`. Через `PromptVersionService::getHistory()`. UI: список версий (newest first), каждая с автором, датой, комментарием, кнопками «Сделать активной» (= `rollbackTo`) и «Посмотреть diff» (на старте — просто показать обе версии текстом рядом, plain-text, без fancy-инструмента).
-   - `Admin\UserLlmLimitController@edit`/`update` (route `admin.users.llm-limit`, nested под `users/{user}/llm-limit`) — корректировка LLM-лимита пользователя. Через `FormRequest` (`AdminUpdateUserLlmLimitRequest` с валидацией `extra_tokens` int >= 0). Операция пишет запись в `admin_audit_logs` с `action = UserLlmLimitAdjusted` и `meta = { old_extra, new_extra }`.
+   - `Admin\UserLlmLimitController@edit`/`update` (роуты `admin.users.llm-limit.edit` / `admin.users.llm-limit.update`, nested под `users/{user}/llm-limit`) — корректировка LLM-лимита пользователя. Через `FormRequest` (`AdminUpdateUserLlmLimitRequest` с валидацией `extra_tokens` int >= 0); `update` делегирует в Action `App\Actions\Admin\AdjustUserLlmLimit` (транзакция: upsert `user_llm_limits` + audit). Операция пишет запись в `admin_audit_logs` с `action = UserLlmLimitAdjusted` и `meta = { old_extra, new_extra }`.
    - **UI для выбора провайдера/ключа — не делаем.** Это инфраструктурная настройка, не бизнес-сущность.
-8. **Политики:** `CoursePolicy@update` (включает редактирование `ai_course_prompt`), `UserPolicy@updateLlmLimit` — только Admin. Отдельная `AiPromptPolicy` не нужна — промпты редактируются как часть курса / настройки.
-9. **Routes:** `admin.prompts.*` (включая `admin.prompts.history` для `PromptHistoryController`), `admin.users.llm-limit.*`, всё под middleware `['auth', 'role:admin']`.
+8. **Политики:** `AiPromptVersionPolicy` (`viewAny`/`view`/`update` — только Admin; заменил stub `PromptPolicy` из Этапа 2), `UserPolicy@updateLlmLimit` — только Admin. `CoursePolicy@update` (включая редактирование `ai_course_prompt`) — появляется в Этапе 6 вместе с курсами (решение от 2026-09-14).
+9. **Routes:** `admin.prompts.index`, `admin.prompts.global.update`, `admin.prompts.history.index`, `admin.prompts.history.rollback` (`PromptHistoryController`), `admin.users.llm-limit.edit`, `admin.users.llm-limit.update` — всё под middleware `['auth', 'role:admin']`.
 10. **Тесты:**
-   - **Unit:** `PromptResolver` (Global-only / Global+Course / Course-only / empty Global fallback / склейка через `\n\n`), `PromptVersionService` (создание первой версии / инкремент `version_number` / rollback через создание новой версии / обновление кэша в `settings` или `courses.ai_course_prompt` / запись в `admin_audit_logs` / работа в `DB::transaction` — откат при ошибке), `AiFeedbackService` (формирует запрос к LLM с правильным промптом, проверяет лимит, записывает usage), `AiTaskGeneratorService`, `AiLimitGuard` (все ветки: лимит не исчерпан / глобальный исчерпан / пользовательский исчерпан / ручное добавление через `extra_tokens`), `AiTokenUsageService` (агрегация за день), `DummyLlmClient`, каждый реальный клиент (мокается внешний HTTP), валидация конфига провайдера (формат URL, SSRF-блокировка), enum, `AiProvider`/`AiTokenUsageAction` (метки, сравнения), `AdminUpdateUserLlmLimitAction` (корректировка лимита + запись audit-log), `Setting` (key/value) + `SettingRepository` (чтение `ai.global_system_prompt`).
-   - **Feature (smoke):** админ редактирует Global-промпт → новая запись в `ai_prompt_versions` + обновлённый кэш в `settings`, видна на `/admin/global-prompt` и `/admin/prompts/history?key=ai.global_system_prompt`; админ редактирует уточняющий промпт курса → новая запись в `ai_prompt_versions` для `course.{id}.ai_course_prompt` + обновлённое поле `courses.ai_course_prompt`; админ делает rollback на старую версию → новая запись с `comment = 'Rollback to v{N}'`; `PromptResolver` дёргается из теста через DI и возвращает ожидаемую склейку; админ корректирует LLM-лимит пользователя → запись в `admin_audit_logs` с правильным `meta`.
+   - **Unit:** `PromptResolver` (Global-only / Global+Course / Course-only / empty Global fallback / склейка через `\n\n`), `PromptVersionService` (создание первой версии / инкремент `version_number` / rollback через создание новой версии / обновление кэша в `settings` или `courses.ai_course_prompt` / запись в `admin_audit_logs` / работа в `DB::transaction` — откат при ошибке), `AiFeedbackService` (формирует запрос к LLM с правильным промптом, проверяет лимит, записывает usage), `AiTaskGeneratorService`, `AiLimitGuard` (все ветки: лимит не исчерпан / глобальный исчерпан / пользовательский исчерпан / ручное добавление через `extra_tokens`), `AiTokenUsageService` (агрегация за день), `DummyLlmClient`, каждый реальный клиент (мокается внешний HTTP), валидация конфига провайдера (формат URL, SSRF-блокировка), enum, `AiProvider`/`AiTokenUsageAction` (метки, сравнения), `AdjustUserLlmLimit` (корректировка лимита + запись audit-log), `Setting` (key/value, static-файндер `findByKey` для чтения `ai.global_system_prompt`).
+   - **Feature (smoke):** админ редактирует Global-промпт → новая запись в `ai_prompt_versions` + обновлённый кэш в `settings`, видна на `/admin/prompts` и `/admin/prompts/history?key=ai.global_system_prompt`; админ редактирует уточняющий промпт курса (`course.{id}.ai_course_prompt` + обновлённое поле `courses.ai_course_prompt`) → Этап 6 (решение от 2026-09-14); админ делает rollback на старую версию → новая запись с `comment = 'Rollback to v{N}'`; `PromptResolver` дёргается из теста через DI и возвращает ожидаемую склейку; админ корректирует LLM-лимит пользователя → запись в `admin_audit_logs` с правильным `meta`.
 11. **Логирование:** все обращения к LLM (провайдер, model, длина запроса/ответа, длительность, ошибки) — через `Log::info('ai.llm_call', [...])` для последующего анализа расходов. **Полный текст промпта/ответа в production-логи не пишем** (риск утечки + раздувание storage). В dev-окружении допустимо через флаг `config('ai.log_full_prompts', false)`.
 
 **Что получаем на выходе:**
 - Абстракция `LlmClient` + 4 whitelist-реализации + `DummyLlmClient` для dev/тестов.
-- **Версионирование промптов:** таблица `ai_prompt_versions` (источник истины) + `PromptVersionService` (`createNewVersion`, `rollbackTo`, `getHistory`). UI истории в `/admin/prompts/history?key=...`. `settings` / `courses.ai_course_prompt` — кэш активной версии.
+- **Версионирование промптов:** таблица `ai_prompt_versions` (источник истины) + `PromptVersionService` (`createNewVersion`, `rollbackTo`, `getHistory`). UI истории в `/admin/prompts/history?key=...`. `settings` — кэш активной версии глобального промпта (кэш-цель course-ключей `courses.ai_course_prompt` — Этап 6).
 - `PromptResolver` с предсказуемой логикой склейки.
 - `AiFeedbackService` и `AiTaskGeneratorService` готовы к подключению из практики, с проверкой лимитов и записью usage.
 - **Лимиты токенов:** глобальный + per-user, из конфига, с возможностью ручной корректировки админом (audit-log).
 - Админка для редактирования промптов (с историей) и LLM-лимитов пользователей.
 - Конфиг провайдера через `.env` с валидацией на старте.
+- `AiPromptVersionPolicy` (авторизация промпт-операций) и Action `AdjustUserLlmLimit` (ручная корректировка per-user лимита, audit-log).
+- `AiLimitExceededException` — доменное исключение при исчерпании лимита; HTTP-слой отразит его как `429` в Этапе 8 (решение от 2026-09-14).
 - Все вызовы логируются (метаданные).
 
 **Готовность:**
 - Admin может редактировать Global-промпт и видеть изменения.
-- **Версионирование:** каждое изменение создаёт новую запись в `ai_prompt_versions`; история доступна в `/admin/prompts/history`; rollback создаёт новую версию со старым текстом; кэш в `settings` / `courses.ai_course_prompt` всегда согласована с `MAX(version_number)`.
+- **Версионирование:** каждое изменение создаёт новую запись в `ai_prompt_versions`; история доступна в `/admin/prompts/history`; rollback создаёт новую версию со старым текстом; кэш в `settings` всегда согласован с `MAX(version_number)` (кэш-цель course-ключей — Этап 6).
 - `PromptResolver` корректно склеивает Global + Course.
 - `DummyLlmClient` используется в тестах, ответы детерминированы.
-- **Лимиты:** пользователь с исчерпанным лимитом получает `HTTP 429`; админ через `/admin/users/{user}/llm-limit` может добавить `extra_tokens` (запись в `admin_audit_logs`).
+- **Лимиты:** пользователь с исчерпанным лимитом получает `AiLimitExceededException` (без ретраев; HTTP-слой отразит как `429` — Этап 8; решение от 2026-09-14); админ через `/admin/users/{user}/llm-limit` может добавить `extra_tokens` (запись в `admin_audit_logs`).
 - `php artisan test` зелёный, `pint` зелёный, `phpstan` зелёный.
 - `config('ai.provider') = 'dummy'` по умолчанию — приложение стартует без реального ключа.
 
@@ -415,7 +420,7 @@
 
 1. **Enum'ы:** `CourseStatus { Draft, Published, Archived }`, `Level { Beginner, Intermediate, Advanced }`.
 2. **Миграции:**
-   - `courses`: `id`, `slug` (unique), `title`, `description`, `preview_image_path` (string, nullable) — путь к файлу в `Storage::disk('public')`, `status` (enum), `ai_course_prompt` (longtext, nullable), `created_by`, timestamps. Сами файлы лежат в `storage/app/public/courses/previews/{uuid}.{ext}`.
+   - `courses`: `id`, `slug` (unique), `title`, `description`, `preview_image_path` (string, nullable) — путь к файлу в `Storage::disk('public')`, `status` (enum), `ai_course_prompt` (longtext, nullable), `created_by`, timestamps. Сами файлы лежат в `storage/app/public/courses/previews/{uuid}.{ext}`. Поле `ai_course_prompt` — кэш-цель course-ключей промптов, перенесённая из Этапа 4 (решение от 2026-09-14): `PromptVersionService::createNewVersion('course.{id}.ai_course_prompt', ...)` обновляет его, создание/редактирование промпта курса = новая версия в `ai_prompt_versions`.
    - `levels`: `id`, `course_id` (FK), `level` (enum), `order` (int), `title` (nullable). Unique `(course_id, level)`.
    - `lessons`: `id`, `level_id` (FK), `slug` (unique), `title`, `order` (int), `material` (longtext), `is_published` (bool), timestamps.
 3. **Модели:** `Course`, `Level`, `Lesson` — relations, scopes (`published`, `ordered`), accessors. `slug` через `Str::slug` в мутаторе/observer.
@@ -424,6 +429,7 @@
    - `CourseController@show` — карточка курса с разворотом уровней/уроков (без прогресса).
 5. **Контроллеры админки (Этап 2, заглушки → реальные):**
    - `Admin\CourseController` — CRUD курса.
+   - `Admin\CoursePromptController@edit`/`update` — редактирование уточняющего промпта курса (`courses.ai_course_prompt`) через `PromptVersionService` (перенесено из Этапа 4 — решение от 2026-09-14). Audit-log: `action = PromptVersionCreated`, `meta = { prompt_key, version, comment }`.
    - `Admin\LevelController` — CRUD уровня внутри курса.
    - `Admin\LessonController` — CRUD урока внутри уровня (без заданий — это Этап 7).
 6. **Routes:**
@@ -451,7 +457,7 @@
 
 **Открытые вопросы этапа:**
 - ~~Поле `material` — хранить как longtext в БД или вынести в Markdown-файлы / отдельный `lesson_contents`~~ — закрыто: **longtext в БД** (поле `lessons.material`, как уже зафиксировано в миграции). Markdown-рендеринг — на стороне Vue-фронта (библиотека типа `marked` или `markdown-it`). Загрузка картинок внутри материала — по URL. Никаких файлов на диске, никакой отдельной таблицы `lesson_contents` — проще администрировать, всё в одном месте, версионируется через `updated_at`.
-- ~~Превью-картинки: загрузка через админку или только URL~~ — закрыто: **загрузка через админку** (поле `courses.preview_image` остаётся nullable, но в админке — file-upload через `multipart/form-data`). Хранение — **через Laravel Storage** на диске (`storage/app/public/courses/previews/{uuid}.{ext}`), `Storage::disk('public')`, `preview_image_path` строка в БД. **Не используем** внешние URL-ы (CDN, s3) на старте — переход на S3-подобное делается заменой диска в `config/filesystems.php`, без правок кода. UI: Vue-компонент с `<input type="file" accept="image/*">` + `FormData` + `POST` через Inertia. Валидация в FormRequest: `mimes:jpg,jpeg,png,webp`, `max:2048` (2 МБ), `dimensions:min_width=200,min_height=200`. На диске — `Intervention\Image` (или встроенный GD) для **ресайза до 1200×630** + WebP-конверсия (опционально, через отдельный job). Тримминг EXIF (защита от утечки гео-данных).
+- ~~Превью-картинки: загрузка через админку или только URL~~ — закрыто: **загрузка через админку** (поле `courses.preview_image` остаётся nullable, но в админке — file-upload через `multipart/form-data`). Хранение — **через Laravel Storage** на диске (`storage/app/public/courses/previews/{uuid}.{ext}`), `Storage::disk('public')`, `preview_image_path` строка в БД. **Не используем** внешние URL-ы (CDN, s3) на старте — переход на S3-подобное делается заменой диска в `config/filesystems.php`, без правок кода. UI: Vue-компонент с `<input type="file" accept="image/*">` + `FormData` + `POST` через Inertia. Валидация в FormRequest: `mimes:jpg,jpeg,png,webp`, `max:2048` (2 МБ), `dimensions:min_width=200,min_height=200`. На диске — `Intervention\Image` (или встроенный GD) для **ресайза до 1200×630** + WebP-конверсия (опционально, через отдельный job). Тримминг EXIF (защита от утечки гео-данных). В Этапе 6 реализовано: GD fit-ресайз до 1200×630 + ре-энкод (EXIF-стрип) синхронно в Action; WebP-конверсия и queue-job — отложены.
 - Сортировка курсов в каталоге: по дате / вручную / по популярности?
 
 ---

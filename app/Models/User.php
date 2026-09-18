@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
@@ -68,6 +69,36 @@ class User extends Authenticatable
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Per-lesson progress rows owned by the user.
+     *
+     * @return HasMany<UserLessonProgress, $this>
+     */
+    public function lessonProgresses(): HasMany
+    {
+        return $this->hasMany(UserLessonProgress::class);
+    }
+
+    /**
+     * Per-course progress rows owned by the user.
+     *
+     * @return HasMany<UserCourseProgress, $this>
+     */
+    public function courseProgresses(): HasMany
+    {
+        return $this->hasMany(UserCourseProgress::class);
+    }
+
+    /**
+     * Per-user LLM token limit adjustment (admin-granted extra tokens).
+     *
+     * @return HasOne<UserLlmLimit, $this>
+     */
+    public function llmLimit(): HasOne
+    {
+        return $this->hasOne(UserLlmLimit::class);
     }
 
     /**

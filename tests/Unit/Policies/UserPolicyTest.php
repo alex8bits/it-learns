@@ -101,6 +101,9 @@ class UserPolicyTest extends TestCase
             'unblock allows admin for other user' => ['unblock', 'admin', 'other', true],
             'unblock denies admin for self' => ['unblock', 'admin', 'self', false],
             'unblock denies regular user' => ['unblock', 'user', 'other', false],
+            'updateLlmLimit allows admin for other user' => ['updateLlmLimit', 'admin', 'other', true],
+            'updateLlmLimit denies admin for self' => ['updateLlmLimit', 'admin', 'self', false],
+            'updateLlmLimit denies regular user' => ['updateLlmLimit', 'user', 'other', false],
         ];
     }
 
@@ -112,6 +115,7 @@ class UserPolicyTest extends TestCase
             'changeRole' => $this->policy->changeRole($actor, $target),
             'block' => $this->policy->block($actor, $target),
             'unblock' => $this->policy->unblock($actor, $target),
+            'updateLlmLimit' => $this->policy->updateLlmLimit($actor, $target),
             default => throw new InvalidArgumentException("Unknown method [{$method}]"),
         };
     }

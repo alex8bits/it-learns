@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Unit\Policies;
 
 use App\Enums\UserRole;
+use App\Models\Course;
 use App\Models\User;
 use App\Policies\CoursePolicy;
+use Illuminate\Support\Facades\Gate;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
@@ -15,6 +17,8 @@ use Tests\TestCase;
 class CoursePolicyTest extends TestCase
 {
     private CoursePolicy $policy;
+
+    private Course $course;
 
     private User $admin;
 
@@ -28,26 +32,32 @@ class CoursePolicyTest extends TestCase
         Role::findOrCreate(UserRole::Admin->value, 'web');
 
         $this->policy = new CoursePolicy;
+        $this->course = Course::factory()->create();
         $this->admin = User::factory()->admin()->create();
         $this->user = User::factory()->create();
     }
 
     #[DataProvider('abilityProvider')]
-    public function test_all_abilities_deny_admin(string $ability): void
+    public function test_admin_is_allowed(string $ability): void
     {
-        $this->assertFalse($this->callAbility($ability, $this->admin));
+        $this->assertTrue($this->callAbility($ability, $this->admin));
     }
 
     #[DataProvider('abilityProvider')]
-    public function test_all_abilities_deny_user(string $ability): void
+    public function test_regular_user_is_denied(string $ability): void
     {
         $this->assertFalse($this->callAbility($ability, $this->user));
     }
 
     #[DataProvider('abilityProvider')]
-    public function test_all_abilities_deny_guest(string $ability): void
+    public function test_guest_is_denied(string $ability): void
     {
-        $this->assertFalse($this->callAbility($ability, null));
+        $this->assertFalse($this->callAbilityAsGuest($ability));
+    }
+
+    public function test_gate_resolves_policy_by_convention(): void
+    {
+        $this->assertInstanceOf(CoursePolicy::class, Gate::getPolicyFor(Course::class));
     }
 
     /**
@@ -61,21 +71,39 @@ class CoursePolicyTest extends TestCase
             'create' => ['create'],
             'update' => ['update'],
             'delete' => ['delete'],
+            'preview' => ['preview'],
         ];
     }
 
-    /**
-     * Stub policies take `mixed $model` for not-yet-existing models, so the
-     * model argument is always null regardless of the ability.
-     */
-    private function callAbility(string $ability, ?User $actor): bool
+    private function callAbility(string $ability, User $actor): bool
     {
         return match ($ability) {
             'viewAny' => $this->policy->viewAny($actor),
-            'view' => $this->policy->view($actor, null),
+            'view' => $this->policy->view($actor, $this->course),
             'create' => $this->policy->create($actor),
-            'update' => $this->policy->update($actor, null),
-            'delete' => $this->policy->delete($actor, null),
+            'update' => $this->policy->update($actor, $this->course),
+            'delete' => $this->policy->delete($actor, $this->course),
+            'preview' => $this->policy->preview($actor, $this->course),
+            default => throw new InvalidArgumentException("Unknown ability [{$ability}]"),
+        };
+    }
+
+    /**
+     * Policy methods take a non-nullable User, so they are never invoked
+     * for guests: the Gate sees a null user, finds a method that does
+     * not allow guests, and denies the ability without calling it.
+     */
+    private function callAbilityAsGuest(string $ability): bool
+    {
+        $gate = Gate::forUser(null);
+
+        return match ($ability) {
+            'viewAny' => $gate->allows('viewAny', Course::class),
+            'view' => $gate->allows('view', $this->course),
+            'create' => $gate->allows('create', Course::class),
+            'update' => $gate->allows('update', $this->course),
+            'delete' => $gate->allows('delete', $this->course),
+            'preview' => $gate->allows('preview', $this->course),
             default => throw new InvalidArgumentException("Unknown ability [{$ability}]"),
         };
     }

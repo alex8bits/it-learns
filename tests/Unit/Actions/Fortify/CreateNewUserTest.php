@@ -6,9 +6,11 @@ namespace Tests\Unit\Actions\Fortify;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Models\UserLlmLimit;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
+use RuntimeException;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -112,6 +114,36 @@ class CreateNewUserTest extends TestCase
 
         $this->assertDatabaseCount('roles', 1);
         $this->assertDatabaseCount('users', 2);
+    }
+
+    public function test_it_creates_user_llm_limit_row_with_zero_extra_tokens(): void
+    {
+        $user = app(CreatesNewUsers::class)->create($this->validInput());
+
+        $this->assertDatabaseCount('user_llm_limits', 1);
+        $this->assertDatabaseHas('user_llm_limits', [
+            'user_id' => $user->id,
+            'extra_tokens' => 0,
+        ]);
+    }
+
+    public function test_user_llm_limit_row_rolls_back_together_with_user(): void
+    {
+        UserLlmLimit::creating(function (): void {
+            throw new RuntimeException('llm limit creation failed');
+        });
+
+        try {
+            app(CreatesNewUsers::class)->create($this->validInput());
+            $this->fail('RuntimeException was not thrown.');
+        } catch (RuntimeException) {
+            // Expected: the registration transaction must roll back.
+        } finally {
+            UserLlmLimit::flushEventListeners();
+        }
+
+        $this->assertDatabaseCount('users', 0);
+        $this->assertDatabaseCount('user_llm_limits', 0);
     }
 
     /**

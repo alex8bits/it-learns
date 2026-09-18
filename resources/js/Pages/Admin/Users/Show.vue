@@ -11,7 +11,7 @@ const props = defineProps({
     tiers: { type: Array, required: true },
 });
 const page = usePage();
-const canChange = computed(() => page.props.auth.user.id !== props.user.id);
+const canChange = computed(() => page.props.auth?.user?.id !== props.user.id);
 const canBlock = canChange;
 
 const roleForm = useForm({ role: props.user.roles[0]?.name ?? 'User' });
@@ -67,6 +67,14 @@ const subscriptionPeriod = (subscription) => (subscription.starts_at || subscrip
                 class="px-3 py-2 bg-red-50 text-red-800 rounded text-sm"
             >
                 Пользователь заблокирован
+            </div>
+            <div v-if="canChange" class="pt-4 border-t border-gray-200">
+                <Link
+                    :href="`/admin/users/${user.id}/llm-limit`"
+                    class="text-sm text-blue-600 hover:text-blue-800"
+                >
+                    LLM-лимит →
+                </Link>
             </div>
         </div>
 

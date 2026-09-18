@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\Subscriptions\SubscriptionService;
 use Closure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -27,9 +28,40 @@ class HandleInertiaRequestsShareTest extends TestCase
         Role::findOrCreate(UserRole::Admin->value, 'web');
     }
 
+    public function test_auth_prop_is_shared_lazily_as_callable(): void
+    {
+        $this->assertIsCallable($this->sharedProps()['auth']);
+    }
+
     public function test_auth_user_is_null_for_guest(): void
     {
         $this->assertNull($this->sharedUser());
+    }
+
+    public function test_auth_prop_for_guest_never_touches_subscription_service(): void
+    {
+        $this->mock(SubscriptionService::class)->shouldNotReceive('isActive');
+
+        $this->assertSame(['user' => null], $this->authProp());
+    }
+
+    public function test_auth_prop_reflects_user_authenticated_after_share_runs(): void
+    {
+        // Production order: route-level `auth` middleware runs after the
+        // group middleware, so share() executes before the user resolver is
+        // attached — the user only becomes visible when the lazy prop is
+        // resolved at render time, never when share() itself executes.
+        $auth = $this->sharedProps()['auth'];
+        assert(is_callable($auth));
+
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $sharedUser = $this->userFromAuthProp($auth);
+        assert(is_array($sharedUser));
+
+        $this->assertSame($user->id, $sharedUser['id']);
+        $this->assertSame($user->name, $sharedUser['name']);
     }
 
     public function test_auth_user_exposes_expected_shape_for_authenticated_user(): void
@@ -50,7 +82,7 @@ class HandleInertiaRequestsShareTest extends TestCase
         $this->assertSame($user->email, $sharedUser['email']);
         $this->assertSame([], $sharedUser['roles']);
         $this->assertFalse($sharedUser['is_blocked']);
-        $this->assertFalse($this->resolvePremium($sharedUser));
+        $this->assertFalse($sharedUser['is_premium']);
     }
 
     public function test_auth_user_roles_and_blocked_flag_reflect_model_state(): void
@@ -76,7 +108,7 @@ class HandleInertiaRequestsShareTest extends TestCase
         $sharedUser = $this->sharedUser();
         assert(is_array($sharedUser));
 
-        $this->assertTrue($this->resolvePremium($sharedUser));
+        $this->assertTrue($sharedUser['is_premium']);
     }
 
     public function test_is_premium_is_false_for_user_with_expired_subscription(): void
@@ -89,7 +121,7 @@ class HandleInertiaRequestsShareTest extends TestCase
         $sharedUser = $this->sharedUser();
         assert(is_array($sharedUser));
 
-        $this->assertFalse($this->resolvePremium($sharedUser));
+        $this->assertFalse($sharedUser['is_premium']);
     }
 
     public function test_status_is_null_without_flash(): void
@@ -144,25 +176,38 @@ class HandleInertiaRequestsShareTest extends TestCase
     }
 
     /**
-     * `is_premium` is shared lazily (a closure, like `status`), so guest
-     * requests and non-Inertia responses never run the subscription query —
-     * resolve it the way the Inertia PropsResolver would.
+     * Resolve the lazy `auth` prop the way the Inertia PropsResolver would:
+     * the callable is invoked at render time, never inside share() itself.
      *
-     * @param  array<string, mixed>  $sharedUser
+     * @return array<string, mixed>
      */
-    private function resolvePremium(array $sharedUser): bool
+    private function authProp(): array
     {
-        $premium = $sharedUser['is_premium'];
-        assert($premium instanceof Closure);
+        $auth = $this->sharedProps()['auth'];
+        assert(is_callable($auth));
 
-        return (bool) $premium();
+        /** @var array<string, mixed> $resolved */
+        $resolved = $auth();
+        assert(is_array($resolved));
+
+        return $resolved;
+    }
+
+    /**
+     * Resolve `auth.user` from an already-shared `auth` callable (used to
+     * authenticate a user AFTER share() has run, as in production).
+     */
+    private function userFromAuthProp(callable $auth): mixed
+    {
+        /** @var array<string, mixed> $resolved */
+        $resolved = $auth();
+        assert(is_array($resolved));
+
+        return $resolved['user'];
     }
 
     private function sharedUser(): mixed
     {
-        $auth = $this->sharedProps()['auth'];
-        assert(is_array($auth));
-
-        return $auth['user'];
+        return $this->authProp()['user'];
     }
 }
