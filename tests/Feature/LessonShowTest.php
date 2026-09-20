@@ -27,7 +27,51 @@ class LessonShowTest extends TestCase
             ->where('lesson.material', Lesson::query()->where('slug', 'select-basics')->value('material'))
             ->has('lesson.theoryTasks')
             ->has('lesson.theoryTasks.0.options', 3)
-            ->where('course.slug', 'sql-basics'));
+            ->where('course.slug', 'sql-basics')
+            // Эффективные пороги минимума: min(K, N) — у демо-урока
+            // 2 теории (min(3,2)) и 1 практика (min(1,1)).
+            ->where('requiredTheoryCount', 2)
+            ->where('requiredPracticeCount', 1));
+    }
+
+    public function test_next_lesson_prop_points_to_the_following_lesson_of_the_course(): void
+    {
+        $this->seed(DemoCourseSeeder::class);
+        $user = User::factory()->create();
+
+        $next = Lesson::query()->where('slug', 'where-ordering')->firstOrFail();
+
+        $response = $this->actingAs($user)->get(route('lessons.show', 'select-basics'));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            ->where('nextLesson.id', $next->id)
+            ->where('nextLesson.slug', 'where-ordering')
+            ->where('nextLesson.title', $next->title));
+
+        // nextLesson несёт только навигацию — ровно {id, slug, title}.
+        /** @var array<string, mixed> $props */
+        $props = $response->viewData('page')['props'];
+        /** @var array<string, int|string> $nextLesson */
+        $nextLesson = $props['nextLesson'];
+        $this->assertSame(['id', 'slug', 'title'], array_keys($nextLesson));
+    }
+
+    public function test_last_lesson_of_the_course_has_no_next_lesson(): void
+    {
+        $this->seed(DemoCourseSeeder::class);
+        $user = User::factory()->create();
+
+        // «joins-intro» — последний урок демо-курса (без задач).
+        $response = $this->actingAs($user)->get(route('lessons.show', 'joins-intro'));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            ->where('nextLesson', null)
+            ->where('requiredTheoryCount', 0)
+            ->where('requiredPracticeCount', 0));
     }
 
     /**

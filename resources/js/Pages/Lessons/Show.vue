@@ -35,12 +35,20 @@ const props = defineProps({
     // «глазами пользователя», включая черновики, — все вопросы и
     // задания списком read-only, без форм, ИИ-кнопок и записи прогресса.
     previewMode: { type: Boolean, required: false, default: false },
+    // Эффективные пороги минимума (min(K, N), посчитаны серверно в
+    // LessonController/preview). Фронт выводит из них достижимость минимума.
+    requiredTheoryCount: { type: Number, required: false, default: 0 },
+    requiredPracticeCount: { type: Number, required: false, default: 0 },
+    // Следующий урок курса ({id, slug, title}) или null, если текущий —
+    // последний (кнопка ведёт на страницу курса).
+    nextLesson: { type: Object, required: false, default: null },
 });
 
 const isAnsweredCorrectly = (taskId) => props.answers[taskId]?.is_correct === true;
 
-// Текущий вопрос — первый без верного ответа; когда все отвечены верно,
-// quiz пройден (что дальше — решает lessonStatus).
+// Текущий вопрос — первый без верного ответа: до минимума это обязательный
+// вопрос окна «первые K», после — следующий опциональный из резерва
+// (его открывает кнопка «Ещё один вопрос»); null — вопросов не осталось.
 const currentTask = computed(
     () => props.lesson.theoryTasks.find((task) => !isAnsweredCorrectly(task.id)) ?? null,
 );
@@ -95,13 +103,26 @@ const shownTheoryFeedback = computed(() => {
     return isAnsweredCorrectly(feedback.task_id) ? feedback : null;
 });
 
-// Практика — строго после теории: секция видна, когда текущий теоретический
-// вопрос отсутствует (теория пройдена или её в уроке нет — оба случая
-// корректны); без практических заданий блок не рендерится вовсе.
-const practiceVisible = computed(() => currentTask.value === null && props.practiceTasks.length > 0);
+// Первые K вопросов по порядку — обязательное окно (правило зеркалит
+// LessonCompletionChecker, статус завершённости остаётся серверным).
+const requiredTheoryTasks = computed(() => props.lesson.theoryTasks.slice(0, props.requiredTheoryCount));
+const theoryMinimumDone = computed(() =>
+    props.requiredTheoryCount === 0
+    || requiredTheoryTasks.value.every((task) => isAnsweredCorrectly(task.id)),
+);
+const requiredPracticeTasks = computed(() => props.practiceTasks.slice(0, props.requiredPracticeCount));
+const practiceMinimumDone = computed(() =>
+    props.requiredPracticeCount === 0
+    || requiredPracticeTasks.value.every((task) => props.passedPracticeTaskIds.includes(task.id)),
+);
 
-// Текущее практическое задание — первое без Passed-попытки
-// (последовательность — UI-уровень, как и в quiz теории).
+// Практика — после обязательных вопросов теории: опциональные вопросы
+// сверх минимума вход не блокируют; без практических заданий блок не
+// рендерится вовсе.
+const practiceVisible = computed(() => theoryMinimumDone.value && props.practiceTasks.length > 0);
+
+// Текущее практическое задание — первое без Passed-попытки: до минимума —
+// обязательное, после — следующее опциональное («Ещё одно задание»).
 const currentPracticeTask = computed(
     () => props.practiceTasks.find((task) => !props.passedPracticeTaskIds.includes(task.id)) ?? null,
 );
@@ -259,6 +280,13 @@ const activeStage = ref(initialStage.value);
 // сбрасывается только полной перезагрузкой браузера.
 const materialAcknowledged = ref(initialStage.value !== STAGES.MATERIAL);
 
+// Опциональная карточка «по требованию»: минимум уже сдан, но пользователь
+// запросил ещё один вопрос/задание из резерва. Тот же паттерн переживания
+// POST → 303 back, что и materialAcknowledged; сброс — watchers ниже и
+// полная перезагрузка браузера.
+const optionalTheoryOpen = ref(false);
+const optionalPracticeOpen = ref(false);
+
 const theoryTabEnabled = computed(() => materialAcknowledged.value && hasTheoryTasks.value);
 const practiceTabEnabled = computed(
     () => materialAcknowledged.value && practiceVisible.value,
@@ -275,7 +303,7 @@ const practiceTabTitle = computed(() => {
         return null;
     }
 
-    return materialAcknowledged.value ? 'Доступна после теории' : 'Сначала изучите материал';
+    return materialAcknowledged.value ? 'Доступна после обязательных вопросов' : 'Сначала изучите материал';
 });
 
 const goToStage = (stage) => {
@@ -287,19 +315,34 @@ const proceedFromMaterial = () => {
     activeStage.value = hasTheoryTasks.value ? STAGES.THEORY : STAGES.PRACTICE;
 };
 
-// Автопереход по concept.md §4: после верного ответа на последний
-// теоретический вопрос (POST → 303 back с обновлёнными answers)
-// пользователь попадает к практике.
+// Ссылка следующего урока: в preview — по id (preview-роут), в обычном
+// режиме — по slug; последний урок курса ведёт на страницу курса.
+const nextLessonHref = computed(() => {
+    if (props.nextLesson === null) {
+        return props.previewMode ? `/admin/courses/${props.course.id}/preview` : `/courses/${props.course.slug}`;
+    }
+    return props.previewMode
+        ? `/admin/courses/${props.course.id}/preview/lessons/${props.nextLesson.id}`
+        : `/lessons/${props.nextLesson.slug}`;
+});
+const nextLessonLabel = computed(() => (props.nextLesson === null ? 'К списку уроков курса' : 'Перейти к следующему уроку'));
+
+// Автоперехода THEORY → PRACTICE больше нет — выбор всегда за пользователем
+// (кнопка «Перейти к практике»). Опциональную карточку закрываем, когда
+// указатель сместился на следующий вопрос/задание (верный ответ):
+// неверный ответ указатель не меняет — карточка остаётся на retry.
+// Сравниваем id, а не сам объект: после POST → 303 back props
+// пересоздаются и ссылки меняются даже на «том же» вопросе.
 watch(
-    () => currentTask.value,
+    () => currentTask.value?.id ?? null,
     () => {
-        if (
-            activeStage.value === STAGES.THEORY &&
-            currentTask.value === null &&
-            hasPracticeTasks.value
-        ) {
-            activeStage.value = STAGES.PRACTICE;
-        }
+        optionalTheoryOpen.value = false;
+    },
+);
+watch(
+    () => currentPracticeTask.value?.id ?? null,
+    () => {
+        optionalPracticeOpen.value = false;
     },
 );
 </script>
@@ -486,7 +529,10 @@ watch(
                         Верно!
                     </p>
 
-                    <div v-if="currentTask" class="bg-white rounded-lg shadow border border-gray-200 p-6">
+                    <div
+                        v-if="currentTask && (!theoryMinimumDone || optionalTheoryOpen)"
+                        class="bg-white rounded-lg shadow border border-gray-200 p-6"
+                    >
                         <p class="text-sm text-gray-500 mb-2">Вопрос {{ currentTask.order }}</p>
                         <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ currentTask.question }}</h3>
 
@@ -509,6 +555,30 @@ watch(
                                 Ответить
                             </Button>
                         </form>
+                    </div>
+
+                    <!-- Ряд действий после минимума теории: дальше практика
+                         (или следующий урок, если практики нет); вопросы
+                         сверх минимума — по желанию, через резерв. -->
+                    <div v-if="theoryMinimumDone" class="mt-4 flex flex-wrap gap-3">
+                        <Button v-if="hasPracticeTasks" type="button" @click="goToStage(STAGES.PRACTICE)">
+                            Перейти к практике
+                        </Button>
+                        <Link
+                            v-else
+                            :href="nextLessonHref"
+                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        >
+                            {{ nextLessonLabel }}
+                        </Link>
+                        <Button
+                            v-if="currentTask !== null"
+                            type="button"
+                            variant="secondary"
+                            @click="optionalTheoryOpen = true"
+                        >
+                            Ещё один вопрос
+                        </Button>
                     </div>
                 </template>
             </section>
@@ -628,7 +698,10 @@ watch(
                     </p>
                 </div>
 
-                <div v-if="currentPracticeTask" class="bg-white rounded-lg shadow border border-gray-200 p-6">
+                <div
+                    v-if="currentPracticeTask && (!practiceMinimumDone || optionalPracticeOpen)"
+                    class="bg-white rounded-lg shadow border border-gray-200 p-6"
+                >
                     <p class="text-sm text-gray-500 mb-2">Задание {{ currentPracticeTask.order }}</p>
                     <h3 class="text-lg font-semibold text-gray-900 mb-2">{{ currentPracticeTask.statement }}</h3>
                     <p class="text-sm text-gray-600 mb-4">
@@ -670,9 +743,29 @@ watch(
                     </div>
                 </div>
 
-                <div v-else class="bg-white rounded-lg shadow border border-gray-200 p-6">
-                    <p class="text-lg font-semibold text-gray-900 mb-2">Практика пройдена</p>
-                    <p class="text-sm text-gray-500">Все практические задания урока решены.</p>
+                <!-- Ряд действий после минимума практики: следующий урок и
+                     опциональный резерв заданий; резерв закончился — все
+                     задания урока решены. -->
+                <div v-if="practiceMinimumDone" class="bg-white rounded-lg shadow border border-gray-200 p-6">
+                    <p v-if="currentPracticeTask === null" class="text-sm text-gray-500 mb-4">
+                        Все практические задания урока решены.
+                    </p>
+                    <div class="flex flex-wrap gap-3">
+                        <Link
+                            :href="nextLessonHref"
+                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        >
+                            {{ nextLessonLabel }}
+                        </Link>
+                        <Button
+                            v-if="currentPracticeTask !== null"
+                            type="button"
+                            variant="secondary"
+                            @click="optionalPracticeOpen = true"
+                        >
+                            Ещё одно задание
+                        </Button>
+                    </div>
                 </div>
                 </template>
 

@@ -97,12 +97,53 @@ class CoursePreviewTest extends TestCase
             ->missing('practiceTasks.0.seed_sql')
             ->where('course.id', $course->id)
             ->where('answers', [])
-            ->where('passedPracticeTaskIds', []));
+            ->where('passedPracticeTaskIds', [])
+            // Зеркальные пороги: min(K, N) по ВСЕМ задачам preview —
+            // у единственного урока 1 черновая теория и 1 черновая
+            // практика; он же последний — следующего нет.
+            ->where('requiredTheoryCount', 1)
+            ->where('requiredPracticeCount', 1)
+            ->where('nextLesson', null));
 
         $this->assertDatabaseMissing('user_lesson_progress', [
             'user_id' => $admin->id,
             'lesson_id' => $lesson->id,
         ]);
+    }
+
+    public function test_preview_lesson_thresholds_count_draft_tasks_and_next_lesson_includes_drafts(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $course = Course::factory()->create();
+        $level = Level::factory()->create([
+            'course_id' => $course->id,
+            'title' => 'Азы',
+            'order' => 1,
+        ]);
+        $lesson = Lesson::factory()->unpublished()->for($level)->create(['order' => 1]);
+        TheoryTask::factory()
+            ->unpublished()
+            ->withOptions()
+            ->for($lesson)
+            ->sequence(['order' => 1], ['order' => 2])
+            ->count(2)
+            ->create();
+        PracticeTask::factory()->unpublished()->for($lesson)->create();
+        $nextLesson = Lesson::factory()->unpublished()->for($level)->create(['order' => 2]);
+
+        $response = $this->actingAs($admin)->get(route('admin.courses.preview.lesson', [$course, $lesson]));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            // Пороги считают и черновики: 2 теории -> min(3,2), практика
+            // -> min(1,1) — цифры совпадают со списком, который видит админ.
+            ->where('requiredTheoryCount', 2)
+            ->where('requiredPracticeCount', 1)
+            // Навигация preview включает черновики и строится по id.
+            ->where('nextLesson.id', $nextLesson->id)
+            ->where('nextLesson.slug', $nextLesson->slug)
+            ->where('nextLesson.title', $nextLesson->title));
     }
 
     public function test_lesson_of_another_course_returns_404(): void

@@ -11,6 +11,7 @@ use App\Models\Lesson;
 use App\Models\PracticeTask;
 use App\Models\TheoryTask;
 use App\Models\TheoryTaskOption;
+use App\Services\Courses\NextLessonResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -61,8 +62,10 @@ class CoursePreviewController extends Controller
      * Lesson preview: the user-facing `Lessons/Show` page with the full
      * study material, theory quiz and practice tasks — published or
      * not. The props mirror Lessons/LessonController::show (including
-     * the spoiler guards), except everything user-specific is empty and
-     * `previewMode` switches the Vue page to read-only rendering.
+     * the spoiler guards and the completion props
+     * `requiredTheoryCount`/`requiredPracticeCount`/`nextLesson`),
+     * except everything user-specific is empty and `previewMode`
+     * switches the Vue page to read-only rendering.
      */
     public function lesson(Request $request, Course $course, Lesson $lesson): Response
     {
@@ -133,6 +136,24 @@ class CoursePreviewController extends Controller
             'practiceFeedback' => null,
             'aiFeedback' => null,
             'extraTask' => null,
+            // Зеркальные пороги минимума (LessonController::show), но от
+            // ВСЕХ отрендеренных задач: preview показывает и черновики,
+            // поэтому min(K, N) считается по той же коллекции, которую
+            // админ видит списком.
+            'requiredTheoryCount' => min(
+                (int) config('progress.theory_required_per_lesson', 3),
+                $lesson->theoryTasks->count(),
+            ),
+            'requiredPracticeCount' => min(
+                (int) config('progress.practice_required_per_lesson', 1),
+                $lesson->practiceTasks->count(),
+            ),
+            // Следующий урок для навигации preview: publishedOnly false —
+            // preview-список включает черновики, ссылки строятся по id
+            // (/admin/courses/{course}/preview/lessons/{lesson}).
+            'nextLesson' => ($next = app(NextLessonResolver::class)($course, $lesson, publishedOnly: false)) !== null
+                ? ['id' => $next->id, 'slug' => $next->slug, 'title' => $next->title]
+                : null,
             'previewMode' => true,
         ]);
     }

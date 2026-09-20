@@ -8,6 +8,7 @@ use App\Enums\CourseStatus;
 use App\Enums\LessonProgressStatus;
 use App\Enums\PracticeAttemptStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\PracticeTask;
 use App\Models\PracticeTaskSubmission;
@@ -15,6 +16,7 @@ use App\Models\TheoryTask;
 use App\Models\TheoryTaskOption;
 use App\Models\UserLessonProgress;
 use App\Models\UserTheoryTaskAnswer;
+use App\Services\Courses\NextLessonResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -106,6 +108,24 @@ class LessonController extends Controller
             // (персистится только фидбэк; доп. задача — только показ).
             'aiFeedback' => $request->session()->get('ai_feedback'),
             'extraTask' => $request->session()->get('extra_task'),
+            // Эффективные пороги минимума: min(K, N) по опубликованным
+            // задачам (коллекции уже загружены выше — без доп. запросов).
+            // Фронт выводит из них theoryMinimumDone/practiceMinimumDone
+            // (UI-гейт), серверный авторитет завершённости —
+            // LessonCompletionChecker.
+            'requiredTheoryCount' => min(
+                (int) config('progress.theory_required_per_lesson', 3),
+                $lesson->theoryTasks->count(),
+            ),
+            'requiredPracticeCount' => min(
+                (int) config('progress.practice_required_per_lesson', 1),
+                $lesson->practiceTasks->count(),
+            ),
+            // Следующий урок курса для кнопки «Перейти к следующему
+            // уроку»; null — урок последний. Только {id, slug, title}.
+            'nextLesson' => ($next = $this->nextLesson($course, $lesson)) !== null
+                ? ['id' => $next->id, 'slug' => $next->slug, 'title' => $next->title]
+                : null,
         ]);
     }
 
@@ -172,5 +192,15 @@ class LessonController extends Controller
             ->pluck('practice_task_id')
             ->map(fn (mixed $id): int => (int) $id)
             ->all();
+    }
+
+    /**
+     * The lesson following $lesson in the course's canonical order
+     * (NextLessonResolver). Published only: the user flow never leads
+     * into drafts — the route itself 404s on unpublished lessons.
+     */
+    private function nextLesson(Course $course, Lesson $lesson): ?Lesson
+    {
+        return app(NextLessonResolver::class)($course, $lesson, publishedOnly: true);
     }
 }

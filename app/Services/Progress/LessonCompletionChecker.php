@@ -13,34 +13,63 @@ use Illuminate\Support\Collection;
 
 /**
  * The single place defining when a lesson counts as completed
- * (Stage 8 rule): a lesson is completed when the user has correctly
- * answered every published theory task of the lesson AND has a Passed
- * submission for every published practice task. Each part is
- * vacuously done when its published set is empty ("empty = done");
- * a material-only lesson (both sets empty) is therefore formally
- * completed, but no user action triggers the check for it, so the
- * observable behavior does not change.
+ * (the "first K by order" rule): a lesson is completed when the user
+ * has correctly answered the first K published theory tasks of the
+ * lesson by `order` AND has a Passed submission for the first M
+ * published practice tasks by `order`. K and M come from
+ * config('progress.*_required_per_lesson') and are capped by the
+ * number of published tasks (min(K, N): a lesson with fewer tasks
+ * requires all of them). Tasks beyond the required window are
+ * optional and never affect completion. Each part is vacuously done
+ * when its required window is empty ("empty = done"); a material-only
+ * lesson (both windows empty) is therefore formally completed, but no
+ * user action triggers the check for it, so the observable behavior
+ * does not change.
  *
  * Do not duplicate the completion rule anywhere else.
  */
 class LessonCompletionChecker
 {
     /**
-     * Whether the user has completed the lesson's published theory and practice.
+     * Whether the user has completed the lesson's required theory and
+     * practice windows (the first K published tasks of each part by order).
      */
     public function __invoke(User $user, Lesson $lesson): bool
     {
         $theoryIds = $lesson->theoryTasks()->published()->pluck('id');
 
-        $theoryDone = $theoryIds->isEmpty()
-            || $this->correctTheoryAnswers($user, $theoryIds) === $theoryIds->count();
+        $requiredTheoryIds = $theoryIds->take($this->requiredTheoryCount());
+
+        $theoryDone = $requiredTheoryIds->isEmpty()
+            || $this->correctTheoryAnswers($user, $requiredTheoryIds) === $requiredTheoryIds->count();
 
         $practiceIds = $lesson->practiceTasks()->published()->pluck('id');
 
-        $practiceDone = $practiceIds->isEmpty()
-            || $this->passedPracticeSubmissions($user, $practiceIds) === $practiceIds->count();
+        $requiredPracticeIds = $practiceIds->take($this->requiredPracticeCount());
+
+        $practiceDone = $requiredPracticeIds->isEmpty()
+            || $this->passedPracticeSubmissions($user, $requiredPracticeIds) === $requiredPracticeIds->count();
 
         return $theoryDone && $practiceDone;
+    }
+
+    /**
+     * The configured size of the required theory window. `take()`
+     * applies the min(K, N) semantics, so a lesson with fewer
+     * published tasks simply requires all of them.
+     */
+    private function requiredTheoryCount(): int
+    {
+        return max(0, (int) config('progress.theory_required_per_lesson', 3));
+    }
+
+    /**
+     * The configured size of the required practice window (same
+     * min(K, N) semantics as the theory window).
+     */
+    private function requiredPracticeCount(): int
+    {
+        return max(0, (int) config('progress.practice_required_per_lesson', 1));
     }
 
     /**
