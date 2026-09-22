@@ -80,8 +80,8 @@
 | 1 | Логические операторы: AND/OR/NOT, скобки, приоритет | Составные фильтры |
 | 2 | IN, BETWEEN, LIKE (% и _), ESCAPE | Поиск по шаблонам и диапазонам |
 | 3 | Вычисления в SELECT, псевдонимы (AS), DISTINCT, конкатенация | Вычисляемые столбцы, уникальные значения |
-| 4 | Строковые функции: CONCAT, UPPER/LOWER, SUBSTRING, TRIM, REPLACE, LENGTH | Форматирование вывода |
-| 5 | Числа и даты: ROUND/FLOOR/ABS; NOW, DATEDIFF, DATE_ADD, DATE_FORMAT, YEAR/MONTH/DAY, EXTRACT, TIMESTAMPDIFF; группировка по месяцам | Возрасты, сроки, отчёты по периодам |
+| 4 | Строковые функции: CONCAT, UPPER/LOWER, SUBSTRING, TRIM, REPLACE, LENGTH/CHAR_LENGTH | Форматирование вывода |
+| 5 | Числа и даты: ROUND/FLOOR/ABS; NOW, DATEDIFF, DATE_ADD, DATE_FORMAT, YEAR/MONTH/DAY, EXTRACT, TIMESTAMPDIFF; месячный ключ DATE_FORMAT(…, '%Y-%m') без GROUP BY (сама группировка — урок 9) | Возрасты, сроки, отчёты по периодам |
 | 6 | Логический порядок выполнения SELECT: FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY; почему алиас из SELECT недоступен в WHERE | — (фундамент для понимания WHERE vs HAVING, ON vs WHERE, агрегатов) |
 | 7 | CASE WHEN: условная логика — простой и поисковый CASE, категоризация значений, CASE в ORDER BY | Ценовые сегменты товаров, условная сортировка |
 | 8 | Агрегатные функции: COUNT(*)/COUNT(col), SUM, AVG, MIN, MAX; NULL в агрегатах | Статистика по таблице |
