@@ -378,14 +378,14 @@
    - **Анти-DoS:** лимит одновременных сред на пользователя (1) — через `Cache::lock`.
 7. **Сравнение результатов — хеш-эталон + каноническая сериализация:**
    - `PracticeTask.expected_hash` (string, 64 hex) — хеш эталона, вычисляется при создании/редактировании задания через `CanonicalResultSerializer::hash(mixed $rows, array $columns)`.
-   - `CanonicalResultSerializer`: `ORDER BY` по всем колонкам, строки `trim`+`lower`, числа как строки с фиксированной точностью, JSON-сериализация, `hash('sha256', ...)`.
+   - `CanonicalResultSerializer`: порядок строк значим — его задаёт эталон; нормализуются порядок колонок по списку ожидаемых, строки `trim`+`lower`, числа как строки с фиксированной точностью, SQL NULL — сентинелом; JSON-сериализация, `hash('sha256', ...)`.
    - `compare()` сериализует результат студента **тем же методом** и сравнивает хеши. Совпало — пройдено. Не совпало — `ExecutionResult::diff` показывает разницу (эталон vs попытка) для UI.
 8. **Конфиг `config/practice.php`:**
    - `driver` → `local-sqlite` (по умолчанию). Будет `docker` после этапа «Docker-изоляция».
    - `sqlite.timeout_seconds`, `sqlite.max_result_bytes`, `sqlite.max_db_bytes` — лимиты.
    - `storage_path` → `storage/framework/practice` (создаётся автоматически).
 9. **Тесты:**
-   - **Unit:** `LocalSqlitePracticeEnvironment` (provision / execute SELECT / execute INSERT / execute с ошибкой синтаксиса / execute с таймаутом / execute с превышением размера / execute с запрещённым `ATTACH` / execute с множественными statements / destroy / destroy вызывается даже при исключении), `RunPracticeTaskAction` (success / error / таймаут / destroy вызван всегда), `CanonicalResultSerializer` (хеш одинаков для разного порядка строк / регистр строк / формат чисел), сравнение, enum.
+   - **Unit:** `LocalSqlitePracticeEnvironment` (provision / execute SELECT / execute INSERT / execute с ошибкой синтаксиса / execute с таймаутом / execute с превышением размера / execute с запрещённым `ATTACH` / execute с множественными statements / destroy / destroy вызывается даже при исключении), `RunPracticeTaskAction` (success / error / таймаут / destroy вызван всегда), `CanonicalResultSerializer` (порядок строк значим: другой порядок — другой хеш / регистр строк / формат чисел), сравнение, enum.
    - **Feature (smoke):** HTTP-эндпоинт `POST /practice-tasks/{task}/submit` (заглушка) → вызывает `RunPracticeTaskAction` → возвращает `{ status, result, expected }` (минимум).
 
 **Что получаем на выходе:**
@@ -400,7 +400,7 @@
 - SQL-запрос пользователя выполняется в изолированной SQLite-БД, возвращает результат, среда уничтожается.
 - Все 6 защит работают (запрет `ATTACH`, no-multiple, таймаут, лимит размера, лимит БД, `enableLoadExtension(false)`).
 - Таймаут/ошибка/DoS-кейсы покрыты тестами.
-- Сравнение хешей работает (порядок строк и регистр не ломают «правильный» ответ).
+- Сравнение хешей работает (порядок строк значим — его задаёт эталон; регистр/whitespace/формат чисел не ломают «правильный» ответ).
 - `php artisan test` зелёный, `pint` зелёный, `phpstan` зелёный.
 
 **Открытые вопросы этапа:**
