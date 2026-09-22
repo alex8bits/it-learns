@@ -158,7 +158,7 @@ class MysqlCourseSeeder extends Seeder
      * malformed file must fail the seed loudly instead of seeding
      * partial content.
      *
-     * @return array{slug: string, level_slug: string, order: int, title: string, material: string, theory_tasks: list<array{order: int, question: string, options: list<array{order: int, text: string, is_correct: bool, error_text: string|null}>}>, practice_tasks: list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string>>, runtime: PracticeRuntime}>}
+     * @return array{slug: string, level_slug: string, order: int, title: string, material: string, theory_tasks: list<array{order: int, question: string, options: list<array{order: int, text: string, is_correct: bool, error_text: string|null}>}>, practice_tasks: list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string|null>>, runtime: PracticeRuntime}>}
      */
     private function parseLessonFile(string $path, string $slug): array
     {
@@ -243,7 +243,7 @@ class MysqlCourseSeeder extends Seeder
      * single transaction: the write spans lessons, theory_tasks,
      * theory_task_options and practice_tasks (project rule 6).
      *
-     * @param  array{slug: string, level_slug: string, order: int, title: string, material: string, theory_tasks: list<array{order: int, question: string, options: list<array{order: int, text: string, is_correct: bool, error_text: string|null}>}>, practice_tasks: list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string>>, runtime: PracticeRuntime}>}  $lesson
+     * @param  array{slug: string, level_slug: string, order: int, title: string, material: string, theory_tasks: list<array{order: int, question: string, options: list<array{order: int, text: string, is_correct: bool, error_text: string|null}>}>, practice_tasks: list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string|null>>, runtime: PracticeRuntime}>}  $lesson
      */
     private function createLesson(Level $level, array $lesson): void
     {
@@ -463,7 +463,7 @@ class MysqlCourseSeeder extends Seeder
      * comes from the table header row and feeds the canonical hash
      * exactly like in DemoCourseSeeder.
      *
-     * @return list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string>>, runtime: PracticeRuntime}>
+     * @return list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string|null>>, runtime: PracticeRuntime}>
      */
     private function parsePracticeTasks(string $section, string $filename): array
     {
@@ -574,9 +574,14 @@ class MysqlCourseSeeder extends Seeder
      * Parse the markdown table after `**expected_rows:**` into its
      * column list and data rows. Cells stay strings — no type
      * coercion; the canonical serializer normalizes values when
-     * hashing.
+     * hashing. The only exception is the literal `NULL`: per
+     * `docs/mysql-lesson-rule.md` §3 it denotes a SQL NULL and is
+     * preserved as a true `null` here so the canonical hash matches
+     * the runtime parser, which maps the batch-mode `NULL` to PHP
+     * `null` (see `CanonicalResultSerializer::NULL_SENTINEL`). An
+     * empty cell stays an empty string `''` (distinct from NULL).
      *
-     * @return array{0: list<string>, 1: list<array<string, string>>}
+     * @return array{0: list<string>, 1: list<array<string, string|null>>}
      */
     private function parseExpectedRowsTable(string $block, string $filename): array
     {
@@ -612,7 +617,8 @@ class MysqlCourseSeeder extends Seeder
             $row = [];
 
             foreach ($columns as $index => $column) {
-                $row[$column] = $tableRow[$index];
+                $cell = $tableRow[$index];
+                $row[$column] = $cell === 'NULL' ? null : $cell;
             }
 
             $rows[] = $row;

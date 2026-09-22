@@ -164,7 +164,11 @@ class MysqlCourseSeederTest extends TestCase
         $this->assertStringContainsString('столбцы `name` и `price`', $first->statement);
 
         // Cells stay strings — no type coercion; the canonical
-        // serializer normalizes values when hashing.
+        // serializer normalizes values when hashing. The single
+        // exception is the literal `NULL` (docs/mysql-lesson-rule.md §3):
+        // it denotes a SQL NULL and is preserved as a true `null` so the
+        // canonical hash matches the runtime parser, which maps the
+        // batch-mode `NULL` to PHP null. Empty cells stay `''`.
         $this->assertSame(
             [
                 ['name' => 'Клавиатура механическая', 'price' => '4990.00'],
@@ -231,6 +235,83 @@ class MysqlCourseSeederTest extends TestCase
 
         $this->assertSame('Изменён вручную', $lesson->title);
         $this->assertSame('Материал перезаписан вручную.', $lesson->material);
+    }
+
+    public function test_null_cells_are_preserved_as_php_null_and_kept_distinct_from_empty_string(): void
+    {
+        // NULL in `expected_rows` denotes a SQL NULL
+        // (docs/mysql-lesson-rule.md §3); empty cells stay the empty
+        // string and are not collapsed with NULL. Both must reach
+        // `expected_hash` as distinct values: the canonical serializer
+        // maps real `null` to its `__NULL__` sentinel and trims+lowercases
+        // any string — so swapping `NULL` and `''` would not just
+        // collide in storage, it would change the hash.
+        $practiceTask = <<<'MD'
+        **statement:**
+
+        Выведите все строки таблицы.
+
+        **expected_result_text:**
+
+        Две строки с NULL и пустой строкой.
+
+        **seed_sql:**
+
+        ```sql
+        CREATE TABLE t (id INT, name VARCHAR(10));
+        INSERT INTO t (id, name) VALUES (1, NULL), (2, '');
+        ```
+
+        **expected_rows:**
+
+        | id | name |
+        | -- | ---- |
+        | 1  | NULL |
+        | 2  |      |
+
+        **runtime:** mysql
+
+        MD;
+
+        $seeder = $this->writeFixtureFile(
+            'basics-02-null-cell-fixture.md',
+            self::lessonFile(self::practiceFrontmatter(), self::practiceBody(self::validQuestion(), $practiceTask)),
+        );
+
+        $seeder->run();
+
+        $task = PracticeTask::query()->where('lesson_id', Lesson::query()->where('slug', 'fixture-lesson')->firstOrFail()->id)->firstOrFail();
+
+        // Storage layer: NULL → PHP null, '' → ''.
+        $this->assertSame(
+            [
+                ['id' => '1', 'name' => null],
+                ['id' => '2', 'name' => ''],
+            ],
+            $task->expected_rows,
+        );
+
+        // Canonical serializer maps the two to different sentinels.
+        $this->assertSame(
+            app(CanonicalResultSerializer::class)->hash(
+                [
+                    ['id' => '1', 'name' => null],
+                    ['id' => '2', 'name' => ''],
+                ],
+                ['id', 'name'],
+            ),
+            $task->expected_hash,
+        );
+
+        // Sanity check: reordering still matters (other half of the contract).
+        $swapped = [
+            ['id' => '2', 'name' => ''],
+            ['id' => '1', 'name' => null],
+        ];
+        $this->assertNotSame(
+            app(CanonicalResultSerializer::class)->hash($swapped, ['id', 'name']),
+            $task->expected_hash,
+        );
     }
 
     public function test_deleted_lesson_is_recreated_by_next_run(): void
