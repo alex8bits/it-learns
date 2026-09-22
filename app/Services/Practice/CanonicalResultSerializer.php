@@ -8,10 +8,15 @@ namespace App\Services\Practice;
  * Canonical serialization of SQL result sets (docs/concept.md §5.4,
  * platform plan Stage 5): the expected hash of a practice task and the
  * hash of a student's attempt are only comparable when both sides run
- * through the same normalization first. Row order, column order, string
- * case/whitespace and numeric formatting must not change the hash.
- * Pure class — no DB/HTTP, unit-testable in isolation; consumed by
- * LocalSqlitePracticeEnvironment::compare().
+ * through the same normalization first. Row order is significant — the
+ * expected result defines it (docs/mysql-lesson-rule.md §3), so a
+ * correctly filtered but wrongly ordered result set must not pass.
+ * Column order, string case/whitespace and numeric formatting must not
+ * change the hash. Pure class — no DB/HTTP, unit-testable in
+ * isolation; consumed by the practice environments' compare() (both
+ * LocalSqlite and Docker) and by the task authoring Actions
+ * (Create/Update/VerifyPracticeTask), the course seeders
+ * (MysqlCourseSeeder, DemoCourseSeeder) and PracticeTaskFactory.
  */
 final class CanonicalResultSerializer
 {
@@ -24,12 +29,13 @@ final class CanonicalResultSerializer
     private const NULL_SENTINEL = '__NULL__';
 
     /**
-     * Deterministic hash of a result set: row order, column order, string
+     * Deterministic hash of a result set: row order is significant —
+     * rows are hashed in the order they appear, because the expected
+     * result of the task defines that order. Column order, string
      * case/whitespace and numeric formatting must not change the hash.
-     * Emulates "ORDER BY all columns" by sorting the encoded rows
-     * lexicographically. Never throws: a non-list input behaves like an
-     * empty result set, non-array row entries are skipped, and an empty
-     * result set hashes the empty string.
+     * Never throws: a non-list input behaves like an empty result set,
+     * non-array row entries are skipped, and an empty result set hashes
+     * the empty string.
      *
      * @param  mixed  $rows  result rows (assoc arrays)
      * @param  list<string>  $columns  column names defining the canonical key order
@@ -59,8 +65,6 @@ final class CanonicalResultSerializer
 
             $jsonRows[] = is_string($json) ? $json : '';
         }
-
-        usort($jsonRows, strcmp(...));
 
         return hash('sha256', implode("\n", $jsonRows));
     }

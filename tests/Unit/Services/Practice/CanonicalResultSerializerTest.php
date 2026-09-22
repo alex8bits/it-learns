@@ -17,22 +17,36 @@ class CanonicalResultSerializerTest extends TestCase
         $this->serializer = new CanonicalResultSerializer;
     }
 
-    public function test_row_order_does_not_change_hash(): void
+    /**
+     * Row order is significant: the same rows reordered hash
+     * differently, so "the right rows in the wrong order" no longer
+     * passes a task whose expected result defines the order.
+     *
+     * @param  list<array<string, mixed>>  $rowsA
+     * @param  list<array<string, mixed>>  $rowsB
+     * @param  list<string>  $columns
+     */
+    #[DataProvider('reorderedResultSetsProvider')]
+    public function test_same_rows_in_a_different_order_hash_differently(array $rowsA, array $rowsB, array $columns): void
     {
-        $columns = ['id', 'name'];
+        $this->assertNotSame(
+            $this->serializer->hash($rowsA, $columns),
+            $this->serializer->hash($rowsB, $columns),
+        );
+    }
 
-        $rowsA = [
-            ['id' => 1, 'name' => 'Alice'],
-            ['id' => 2, 'name' => 'Bob'],
-            ['id' => 3, 'name' => 'Carol'],
-        ];
-
-        $rowsB = [
-            ['id' => 3, 'name' => 'Carol'],
-            ['id' => 1, 'name' => 'Alice'],
-            ['id' => 2, 'name' => 'Bob'],
-        ];
-
+    /**
+     * The flip side of the order-sensitive contract: rows in the same
+     * order keep the hash stable, including per-row value
+     * normalization (case, whitespace, numeric formatting).
+     *
+     * @param  list<array<string, mixed>>  $rowsA
+     * @param  list<array<string, mixed>>  $rowsB
+     * @param  list<string>  $columns
+     */
+    #[DataProvider('sameOrderResultSetsProvider')]
+    public function test_same_rows_in_the_same_order_hash_identically(array $rowsA, array $rowsB, array $columns): void
+    {
         $this->assertSame(
             $this->serializer->hash($rowsA, $columns),
             $this->serializer->hash($rowsB, $columns),
@@ -177,6 +191,83 @@ class CanonicalResultSerializerTest extends TestCase
         $hash = $this->serializer->hash($rows, $columns);
 
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $hash);
+    }
+
+    /**
+     * The same rows in a different order — a different hash. Row order
+     * is part of the task's expected result
+     * (docs/mysql-lesson-rule.md §3): an explicit ORDER BY in the
+     * reference solution must be what the student is checked against.
+     *
+     * @return array<string, array{0: list<array<string, mixed>>, 1: list<array<string, mixed>>, 2: list<string>}>
+     */
+    public static function reorderedResultSetsProvider(): array
+    {
+        return [
+            'two rows swapped' => [
+                [['id' => 1], ['id' => 2]],
+                [['id' => 2], ['id' => 1]],
+                ['id'],
+            ],
+            'three rows reversed' => [
+                [['id' => 1], ['id' => 2], ['id' => 3]],
+                [['id' => 3], ['id' => 2], ['id' => 1]],
+                ['id'],
+            ],
+            'last row moved to the front' => [
+                [['id' => 1], ['id' => 2], ['id' => 3]],
+                [['id' => 3], ['id' => 1], ['id' => 2]],
+                ['id'],
+            ],
+            'multi-column rows reversed' => [
+                [['id' => 1, 'name' => 'Alice'], ['id' => 2, 'name' => 'Bob']],
+                [['id' => 2, 'name' => 'Bob'], ['id' => 1, 'name' => 'Alice']],
+                ['id', 'name'],
+            ],
+            'adjacent rows swapped despite equal first column' => [
+                [['n' => 1, 's' => 'a'], ['n' => 1, 's' => 'b']],
+                [['n' => 1, 's' => 'b'], ['n' => 1, 's' => 'a']],
+                ['n', 's'],
+            ],
+            'normalized spellings do not rescue a swapped order' => [
+                [['n' => 1], ['n' => 2]],
+                [['n' => '2'], ['n' => 1.0]],
+                ['n'],
+            ],
+        ];
+    }
+
+    /**
+     * The same rows in the same order — the same hash, with per-row
+     * value normalization (case, whitespace, numeric spelling) still
+     * applying inside each row.
+     *
+     * @return array<string, array{0: list<array<string, mixed>>, 1: list<array<string, mixed>>, 2: list<string>}>
+     */
+    public static function sameOrderResultSetsProvider(): array
+    {
+        return [
+            'identical multi-row sets' => [
+                [['id' => 1, 'name' => 'Alice'], ['id' => 2, 'name' => 'Bob']],
+                [['id' => 1, 'name' => 'Alice'], ['id' => 2, 'name' => 'Bob']],
+                ['id', 'name'],
+            ],
+            'same order, per-row value normalization' => [
+                [['id' => 1, 'name' => 'Alice'], ['id' => 2, 'name' => 'Bob']],
+                [['id' => '1', 'name' => ' alice '], ['id' => 2.0, 'name' => 'BOB']],
+                ['id', 'name'],
+            ],
+            'same order with null and whitespace-only rows' => [
+                [['v' => null], ['v' => '']],
+                [['v' => null], ['v' => '   ']],
+                ['v'],
+            ],
+            'single-row set' => [
+                [['n' => 5]],
+                [['n' => '5']],
+                ['n'],
+            ],
+        ];
     }
 
     /**

@@ -58,7 +58,7 @@ class PracticeTaskFactory extends Factory
     /**
      * Provide a valid SQLite multi-statement seed script whose reference
      * query `SELECT id, title, year FROM books` yields exactly the
-     * default `expected_rows` (the canonical hash ignores row order).
+     * default `expected_rows` in the same (id) order.
      */
     public function withSeedScript(): static
     {

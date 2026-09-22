@@ -413,9 +413,11 @@ class LocalSqlitePracticeEnvironmentTest extends TestCase
             durationMs: 1.0,
         );
 
-        // Canonical: different row order, case and surrounding
-        // whitespace still hash to the same value.
-        $expected = $serializer->hash([['name' => 'bob '], ['name' => 'alice']], ['name']);
+        // Canonical: the same row order with different string case and
+        // surrounding whitespace still hashes to the same value — but a
+        // different row order would not (the expected result defines
+        // the order).
+        $expected = $serializer->hash([['name' => 'alice'], ['name' => 'bob ']], ['name']);
 
         $this->assertTrue($this->manager->compare($result, $expected));
 
