@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 6
-title: 'Логический порядок выполнения SELECT'
+title: Логический порядок выполнения SELECT
 practice: no           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 15
-title: 'Мульти-JOIN и self-join: три и более таблиц'
+title: Мульти-JOIN и self-join: три и более таблиц
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

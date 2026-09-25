@@ -105,7 +105,7 @@ return [
     'docker' => [
         'binary' => env('PRACTICE_DOCKER_BINARY', 'docker'),
         'runtimes' => [
-            'mysql' => ['image' => 'mysql:8', 'engine_args' => ['-e', 'MYSQL_ROOT_PASSWORD=practice']],
+            'mysql' => ['image' => 'mysql:8', 'engine_args' => ['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice']],
             'postgres' => ['image' => 'postgres:16', 'engine_args' => ['-e', 'POSTGRES_PASSWORD=practice']],
         ],
         'memory_mb' => (int) env('PRACTICE_DOCKER_MEMORY_MB', 512),

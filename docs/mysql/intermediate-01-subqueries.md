@@ -3,7 +3,7 @@ course: mysql
 level: Средний             # Основы | Начинающий | Средний | Продвинутый
 level_slug: intermediate
 lesson: 1
-title: 'Подзапросы: скаляр, IN, производные таблицы'
+title: Подзапросы: скаляр, IN, производные таблицы
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

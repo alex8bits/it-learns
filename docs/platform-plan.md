@@ -439,7 +439,7 @@
 7. **FormRequest'ы:** `AdminCreateCourseRequest`, `AdminUpdateCourseRequest`, аналоги для уровня/урока.
 8. **Policy:** `CoursePolicy@view` (опубликованный виден всем, остальное — admin), `CoursePolicy@manage` (только admin).
 9. **Resource'ы (для API или AJAX):** `CourseResource`, `LevelResource`, `LessonResource` (без `material` в списке, с `material` в show).
-10. **Seeders:** `DemoCourseSeeder` — 1 опубликованный курс с двумя уровнями и парой уроков для проверки каталога.
+10. **Seeders:** `MysqlCourseSeeder` — наполняет курс MySQL из `docs/mysql/*.md`. Демо-курс «Основы SQL» больше не используется: каталог проверяется через реальные уроки MySQL.
 11. **Тесты:**
     - **Unit:** модели (relations, scopes, slug), политики, валидация FormRequest, enum'ы.
     - **Feature (smoke):** `/` → 200, виден seed-курс; `/courses/{slug}` → 200, видна структура; `/admin/courses` CRUD smoke.

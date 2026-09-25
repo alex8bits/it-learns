@@ -21,7 +21,6 @@ class DatabaseSeeder extends Seeder
             AdminSeeder::class,
             UserSeeder::class,
             AiPromptSeeder::class,
-            DemoCourseSeeder::class,
             MysqlCourseSeeder::class,
         ]);
     }

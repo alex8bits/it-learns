@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 5
-title: 'Числа и даты: округления, сроки, периоды'
+title: Числа и даты: округления, сроки, периоды
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

@@ -3,7 +3,7 @@ course: mysql
 level: Средний             # Основы | Начинающий | Средний | Продвинутый
 level_slug: intermediate
 lesson: 3
-title: 'UNION / UNION ALL: вертикальное комбинирование запросов'
+title: UNION / UNION ALL: вертикальное комбинирование запросов
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

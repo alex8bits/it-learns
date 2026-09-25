@@ -24,8 +24,18 @@ services:
         restart: unless-stopped
         volumes:
             - .:/var/www/laravel
+        # Stage 10 practice runtime: docker CLI внутри образа (см.
+        # dockerfiles/php.Dockerfile) подключается к хостовому dockerd.
+        # На Linux/macOS достаточно пробросить /var/run/docker.sock;
+        # на Windows Docker Desktop daemon слушает TCP на
+        # host.docker.internal:2375 (Docker Desktop → Settings → General
+        # → "Expose daemon on tcp://localhost:2375 without TLS").
+        # Альтернатива: docker.host=tcp://host.docker.internal:2375 в .env,
+        # но переменная окружения перебивает config — выбираем env.
+        environment:
+          DOCKER_HOST: tcp://host.docker.internal:2375
         networks:
-            - itlearns
+          - itlearns
 
     # MariaDB: основная БД для разработки.
     # Тестовая БД — отдельный сервис `db-testing` (см. AGENTS.md §3.1).

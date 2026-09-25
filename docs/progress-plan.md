@@ -114,8 +114,8 @@
      timestamps. Unique `(user_id, course_id)`.
 3. **Модели/фабрики/сидеры:** relations + scopes (`published`,
    `ordered`), `TheoryTaskFactory` (+`withOptions()`), фабрики
-   прогресса. `DemoCourseSeeder` дополняется теоретическими заданиями
-   (2–3 вопроса в первом уроке).
+   прогресса, `MysqlCourseSeeder` для наполнения курса MySQL из
+   `docs/mysql/*.md`.
 4. **Бизнес-логика (Action-классы, всё в транзакциях):**
    - `StartCourse(User, Course)` — создаёт `user_course_progress`,
      возвращает первый незавершённый урок (первый опубликованный урок

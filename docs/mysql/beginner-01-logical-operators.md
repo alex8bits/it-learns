@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 1
-title: 'Логические операторы: AND, OR, NOT'
+title: Логические операторы: AND, OR, NOT
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

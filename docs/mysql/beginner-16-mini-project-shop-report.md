@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 16
-title: 'Мини-проект: отчёт интернет-магазина'
+title: Мини-проект: отчёт интернет-магазина
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

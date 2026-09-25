@@ -3,7 +3,7 @@ course: mysql
 level: Основы            # Основы | Начинающий | Средний | Продвинутый
 level_slug: basics
 lesson: 12
-title: 'Мини-проект: каталог товаров'
+title: Мини-проект: каталог товаров
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

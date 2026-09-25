@@ -3,7 +3,7 @@ course: mysql
 level: Средний             # Основы | Начинающий | Средний | Продвинутый
 level_slug: intermediate
 lesson: 2
-title: 'Коррелированные подзапросы: EXISTS / NOT EXISTS'
+title: Коррелированные подзапросы: EXISTS / NOT EXISTS
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

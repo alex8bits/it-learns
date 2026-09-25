@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 3
-title: 'Вычисления в SELECT: псевдонимы, DISTINCT, конкатенация'
+title: Вычисления в SELECT: псевдонимы, DISTINCT, конкатенация
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

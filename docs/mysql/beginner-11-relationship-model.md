@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 11
-title: 'Модель связей: 1:1, 1:N, M:N, ER-диаграммы'
+title: Модель связей: 1:1, 1:N, M:N, ER-диаграммы
 practice: no            # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

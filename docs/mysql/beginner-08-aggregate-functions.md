@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 8
-title: 'Агрегатные функции: COUNT, SUM, AVG, MIN, MAX'
+title: Агрегатные функции: COUNT, SUM, AVG, MIN, MAX
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

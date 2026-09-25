@@ -35,7 +35,7 @@ class DockerPracticeEnvironmentTest extends TestCase
 {
     private const CODE = 'SELECT id, name FROM clients ORDER BY id;';
 
-    private const MYSQL_CLIENT = ['mysql', '-uroot', '-ppractice', '--batch'];
+    private const MYSQL_CLIENT = ['mysql', '-uroot', '-ppractice', '-D', 'practice', '--batch'];
 
     private const PSQL_CLIENT = [
         'psql',
@@ -69,7 +69,7 @@ class DockerPracticeEnvironmentTest extends TestCase
         $this->docker->shouldReceive('startContainer')->once()->with(
             'mysql:8',
             Mockery::pattern('/^itlearns-practice-[0-9a-f-]{36}$/'),
-            ['-e', 'MYSQL_ROOT_PASSWORD=practice'],
+            ['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice'],
             512,
             0.5,
             128,
@@ -135,16 +135,17 @@ class DockerPracticeEnvironmentTest extends TestCase
     /**
      * @param  list<string>  $engineArgs  the practice.docker.runtimes.mysql.engine_args spelling
      * @param  string  $password  the MYSQL_ROOT_PASSWORD the mysql client must receive
+     * @param  string  $database  the MYSQL_DATABASE the mysql client must receive via -D
      */
     #[DataProvider('mysqlEnvFormProvider')]
-    public function test_provision_reads_the_mysql_root_password_from_every_env_form(array $engineArgs, string $password): void
+    public function test_provision_reads_the_mysql_root_password_and_database_from_every_env_form(array $engineArgs, string $password, string $database): void
     {
         config(['practice.docker.runtimes.mysql.engine_args' => $engineArgs]);
 
         $this->docker->shouldReceive('startContainer')->once()->andReturn('cid-pw');
         $this->docker->shouldReceive('exec')->once()->with(
             'cid-pw',
-            ['mysql', '-uroot', '-p'.$password, '--batch'],
+            ['mysql', '-uroot', '-p'.$password, '-D', $database, '--batch'],
             'SELECT 1;',
             20,
         )->andReturn(new DockerExecResult(0, "1\n", '', 1.0));
@@ -155,16 +156,16 @@ class DockerPracticeEnvironmentTest extends TestCase
     }
 
     /**
-     * @return array<string, array{0: list<string>, 1: string}>
+     * @return array<string, array{0: list<string>, 1: string, 2: string}>
      */
     public static function mysqlEnvFormProvider(): array
     {
         return [
-            'two-token -e' => [['-e', 'MYSQL_ROOT_PASSWORD=practice'], 'practice'],
-            'single-token -e with space' => [['-e MYSQL_ROOT_PASSWORD=practice'], 'practice'],
-            'long --env= form' => [['--env=MYSQL_ROOT_PASSWORD=practice'], 'practice'],
-            'two-token --env' => [['--env', 'MYSQL_ROOT_PASSWORD=practice'], 'practice'],
-            'mixed with other envs' => [['-e', 'MYSQL_DATABASE=learn', '-e', 'MYSQL_ROOT_PASSWORD=s3cret'], 's3cret'],
+            'two-token -e' => [['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice'], 'practice', 'practice'],
+            'single-token -e with space' => [['-e MYSQL_ROOT_PASSWORD=practice', '-e MYSQL_DATABASE=practice'], 'practice', 'practice'],
+            'long --env= form' => [['--env=MYSQL_ROOT_PASSWORD=practice', '--env=MYSQL_DATABASE=practice'], 'practice', 'practice'],
+            'two-token --env' => [['--env', 'MYSQL_ROOT_PASSWORD=practice', '--env', 'MYSQL_DATABASE=practice'], 'practice', 'practice'],
+            'mixed with other envs' => [['-e', 'MYSQL_DATABASE=learn', '-e', 'MYSQL_ROOT_PASSWORD=s3cret'], 's3cret', 'learn'],
         ];
     }
 
@@ -187,6 +188,33 @@ class DockerPracticeEnvironmentTest extends TestCase
             $this->assertStringContainsString('"-e", "MYSQL_ROOT_PASSWORD=value"', $exception->getMessage());
             $this->assertStringContainsString('"-e MYSQL_ROOT_PASSWORD=value"', $exception->getMessage());
             $this->assertStringContainsString('"--env=MYSQL_ROOT_PASSWORD=value"', $exception->getMessage());
+        }
+    }
+
+    public function test_provision_names_the_accepted_env_forms_when_the_database_is_not_recognized(): void
+    {
+        // The password resolves fine; only the database assignment is
+        // malformed — the error must name the accepted forms for
+        // MYSQL_DATABASE specifically, not fall back to the password
+        // message.
+        config(['practice.docker.runtimes.mysql.engine_args' => [
+            '-e', 'MYSQL_ROOT_PASSWORD=practice',
+            'MYSQL_DATABASE=practice',
+        ]]);
+
+        $user = User::factory()->create();
+
+        $this->docker->shouldReceive('startContainer')->once()->andReturn('cid-nodb');
+        $this->docker->shouldReceive('removeContainer')->once()->with('cid-nodb');
+
+        try {
+            $this->manager->provision($user, new PracticeTaskInput(runtime: PracticeRuntime::Mysql));
+            $this->fail('Expected a RuntimeException for the unrecognized env form.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('requires a MYSQL_DATABASE engine arg', $exception->getMessage());
+            $this->assertStringContainsString('"-e", "MYSQL_DATABASE=value"', $exception->getMessage());
+            $this->assertStringContainsString('"-e MYSQL_DATABASE=value"', $exception->getMessage());
+            $this->assertStringContainsString('"--env=MYSQL_DATABASE=value"', $exception->getMessage());
         }
     }
 

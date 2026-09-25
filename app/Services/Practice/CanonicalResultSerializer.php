@@ -16,7 +16,7 @@ namespace App\Services\Practice;
  * isolation; consumed by the practice environments' compare() (both
  * LocalSqlite and Docker) and by the task authoring Actions
  * (Create/Update/VerifyPracticeTask), the course seeders
- * (MysqlCourseSeeder, DemoCourseSeeder) and PracticeTaskFactory.
+ * (MysqlCourseSeeder) and PracticeTaskFactory.
  */
 final class CanonicalResultSerializer
 {

@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 14
-title: 'LEFT/RIGHT JOIN: внешнее соединение, анти-join, WHERE vs ON'
+title: LEFT/RIGHT JOIN: внешнее соединение, анти-join, WHERE vs ON
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

@@ -388,7 +388,12 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
             ];
         }
 
-        return ['mysql', '-uroot', '-p'.$this->mysqlRootPassword(), '--batch'];
+        // -D selects the default database explicitly: unlike psql (which
+        // falls back to the -U user name as the default dbname), the
+        // mysql client selects nothing on its own, and every seed_sql /
+        // student query relies on an already-selected database (no
+        // `USE ...;` of its own — docs/mysql-lesson-rule.md §3).
+        return ['mysql', '-uroot', '-p'.$this->mysqlRootPassword(), '-D', $this->mysqlDatabaseName(), '--batch'];
     }
 
     /**
@@ -404,6 +409,43 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
      */
     private function mysqlRootPassword(): string
     {
+        return $this->mysqlEngineEnvValue(
+            'MYSQL_ROOT_PASSWORD',
+            'practice.docker.runtimes.mysql requires a MYSQL_ROOT_PASSWORD engine arg '
+            .'in one of the forms: ["-e", "MYSQL_ROOT_PASSWORD=value"], "-e MYSQL_ROOT_PASSWORD=value" '
+            .'or "--env=MYSQL_ROOT_PASSWORD=value"',
+        );
+    }
+
+    /**
+     * The default database name as configured for the container image.
+     * It lives inside practice.docker.runtimes.mysql.engine_args (the
+     * MYSQL_DATABASE env of the mysql:8 image, which auto-creates it on
+     * boot) — extracted the same way as the root password, and passed
+     * to the client via -D so every seed_sql / student query has a
+     * database selected without a `USE ...;` statement of its own.
+     *
+     * @throws RuntimeException with the accepted forms when no MYSQL_DATABASE assignment is found
+     */
+    private function mysqlDatabaseName(): string
+    {
+        return $this->mysqlEngineEnvValue(
+            'MYSQL_DATABASE',
+            'practice.docker.runtimes.mysql requires a MYSQL_DATABASE engine arg '
+            .'in one of the forms: ["-e", "MYSQL_DATABASE=value"], "-e MYSQL_DATABASE=value" '
+            .'or "--env=MYSQL_DATABASE=value"',
+        );
+    }
+
+    /**
+     * The value of one KEY=VAL assignment out of
+     * practice.docker.runtimes.mysql.engine_args, in any of the
+     * recognized `docker run` env spellings (see envAssignments()).
+     *
+     * @throws RuntimeException with $missingMessage when no assignment of $key is found
+     */
+    private function mysqlEngineEnvValue(string $key, string $missingMessage): string
+    {
         /** @var mixed $engineArgs */
         $engineArgs = config('practice.docker.runtimes.mysql.engine_args', []);
 
@@ -412,16 +454,12 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
             : [];
 
         foreach ($this->envAssignments($args) as $assignment) {
-            if (preg_match('/^MYSQL_ROOT_PASSWORD=(.+)$/', $assignment, $matches) === 1) {
+            if (preg_match('/^'.preg_quote($key, '/').'=(.+)$/', $assignment, $matches) === 1) {
                 return $matches[1];
             }
         }
 
-        throw new RuntimeException(
-            'practice.docker.runtimes.mysql requires a MYSQL_ROOT_PASSWORD engine arg '
-            .'in one of the forms: ["-e", "MYSQL_ROOT_PASSWORD=value"], "-e MYSQL_ROOT_PASSWORD=value" '
-            .'or "--env=MYSQL_ROOT_PASSWORD=value"',
-        );
+        throw new RuntimeException($missingMessage);
     }
 
     /**

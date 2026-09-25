@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 13
-title: 'INNER JOIN: соединение двух таблиц'
+title: INNER JOIN: соединение двух таблиц
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

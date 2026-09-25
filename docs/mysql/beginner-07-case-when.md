@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 7
-title: 'CASE WHEN: условная логика в запросах'
+title: CASE WHEN: условная логика в запросах
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

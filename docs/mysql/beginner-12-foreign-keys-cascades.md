@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 12
-title: 'Внешние ключи и каскады: FOREIGN KEY, ON DELETE/UPDATE'
+title: Внешние ключи и каскады: FOREIGN KEY, ON DELETE/UPDATE
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

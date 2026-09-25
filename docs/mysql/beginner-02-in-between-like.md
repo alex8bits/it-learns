@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 2
-title: 'IN, BETWEEN, LIKE: список, диапазон, шаблон'
+title: IN, BETWEEN, LIKE: список, диапазон, шаблон
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

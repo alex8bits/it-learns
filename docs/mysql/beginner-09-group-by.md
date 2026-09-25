@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 9
-title: 'GROUP BY: группировка строк'
+title: GROUP BY: группировка строк
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 

@@ -3,7 +3,7 @@ course: mysql
 level: Начинающий          # Основы | Начинающий | Средний | Продвинутый
 level_slug: beginner
 lesson: 10
-title: 'HAVING vs WHERE: фильтрация групп'
+title: HAVING vs WHERE: фильтрация групп
 practice: yes           # yes | no — по колонке «Практика» в docs/mysql.md
 ---
 
