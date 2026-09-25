@@ -15,6 +15,7 @@ use App\Models\TheoryTaskOption;
 use App\Services\Practice\CanonicalResultSerializer;
 use Database\Seeders\MysqlCourseSeeder;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -67,6 +68,102 @@ class MysqlCourseSeederTest extends TestCase
         $this->assertStringContainsString('SELECT name, price FROM products;', $lesson->material);
         $this->assertStringNotContainsString('## Материал', $lesson->material);
         $this->assertStringNotContainsString('### Вопрос 1', $lesson->material);
+    }
+
+    public function test_parses_first_lesson_with_legitimate_subsection_heading(): void
+    {
+        // The real `## Материал` section in this lesson opens with a
+        // `### Проблема: ...` subheading: a legitimate subsection title,
+        // not a stray section marker. stripLeadingSectionHeading() must
+        // preserve it (only stray `##` headings are its target).
+        $this->seed(MysqlCourseSeeder::class);
+
+        $lesson = Lesson::query()->where('slug', 'what-is-a-database')->firstOrFail();
+
+        $this->assertStringContainsString(
+            '### Проблема: как хранить данные, когда их становится много',
+            $lesson->material,
+        );
+        $this->assertStringStartsNotWith("\n", $lesson->material);
+    }
+
+    public function test_strips_stray_h2_only(): void
+    {
+        // The defensive strip's contract: only a stray H2 is its
+        // target. `splitByHeadings()` normally eats every `## …` line
+        // into a section key, so a stray H2 cannot end up in the
+        // material body via the public pipeline. We exercise the strip
+        // directly through reflection to assert the exact contract
+        // without taking a dependency on a hypothetical
+        // splitByHeadings() refactor.
+        $strip = new ReflectionMethod(MysqlCourseSeeder::class, 'stripLeadingSectionHeading');
+        $strip->setAccessible(true);
+        $seeder = new MysqlCourseSeeder;
+
+        $stripped = (string) $strip->invoke($seeder, "## Забыл снять заголовок\n\n### Подсекция\n\nТекст подсекции.\n");
+
+        $this->assertStringNotContainsString('## Забыл снять заголовок', $stripped);
+        $this->assertStringContainsString('### Подсекция', $stripped);
+        $this->assertStringContainsString('Текст подсекции.', $stripped);
+        $this->assertStringStartsNotWith("\n", $stripped);
+    }
+
+    public function test_keeps_h3_h4_h5_h6_untouched(): void
+    {
+        // Any heading deeper than H2 (### … ######) inside the
+        // `## Материал` section is a legitimate subsection title and
+        // must survive the defensive strip unchanged.
+        $frontmatter = <<<'MD'
+        level_slug: basics
+        lesson: 2
+        title: Урок с подзаголовками разных уровней
+        practice: no
+        MD;
+
+        $body = <<<'MD'
+        # Урок
+
+        ## Материал
+
+        ### Подзаголовок H3
+
+        Текст после H3.
+
+        #### Подзаголовок H4
+
+        Текст после H4.
+
+        ##### Подзаголовок H5
+
+        Текст после H5.
+
+        ###### Подзаголовок H6
+
+        Текст после H6.
+
+        ## Теоретические задания
+
+        ### Вопрос 1: Один ли верный вариант?
+
+        - ✅ Верный вариант
+        - ❌ Неверный вариант — error_text: почему он неверен
+
+        MD;
+
+        $seeder = $this->writeFixtureFile(
+            'basics-02-deeper-headings.md',
+            self::lessonFile($frontmatter, $body),
+        );
+
+        $seeder->run();
+
+        $lesson = Lesson::query()->where('slug', 'deeper-headings')->firstOrFail();
+
+        $this->assertStringContainsString('### Подзаголовок H3', $lesson->material);
+        $this->assertStringContainsString('#### Подзаголовок H4', $lesson->material);
+        $this->assertStringContainsString('##### Подзаголовок H5', $lesson->material);
+        $this->assertStringContainsString('###### Подзаголовок H6', $lesson->material);
+        $this->assertStringStartsNotWith("\n", $lesson->material);
     }
 
     public function test_lesson_gets_five_theory_tasks_with_parsed_options(): void

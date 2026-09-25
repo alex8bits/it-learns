@@ -205,6 +205,14 @@ class MysqlCourseSeeder extends Seeder
             throw new RuntimeException("[mysql] `{$filename}`: секция `## Материал` отсутствует или пуста.");
         }
 
+        // Defensive strip: splitByHeadings() should already drop the
+        // `## Материал` heading itself (it goes into the array key, not
+        // the value). This strip is a second layer in case a future
+        // refactor accidentally surfaces the heading. Lower-level
+        // headings (`###` … `######`) are legitimate subsection titles
+        // inside the material and are preserved.
+        $material = $this->stripLeadingSectionHeading($material);
+
         $theorySection = $sections['Теоретические задания'] ?? null;
 
         if ($theorySection === null) {
@@ -378,6 +386,44 @@ class MysqlCourseSeeder extends Seeder
     }
 
     /**
+     * Strip a single stray `## …` (H2) line at the top of a section
+     * body, including the blank lines that precede and follow it.
+     * Used by parseLessonFile() as a defensive second layer on top of
+     * splitByHeadings(), which already drops `## Материал` itself
+     * (it goes into the array key, not the value); this catches the
+     * case where a future refactor accidentally surfaces that H2.
+     *
+     * Lower-level headings (`###` … `######`) are legitimate subsection
+     * titles within the `## Материал` section (see e.g.
+     * `docs/mysql/basics-01-what-is-a-database.md`) and MUST be
+     * preserved — they are part of the lesson content, not stray
+     * section markers.
+     */
+    private function stripLeadingSectionHeading(string $body): string
+    {
+        $lines = explode("\n", $body);
+        $stripped = 0;
+
+        while (isset($lines[$stripped]) && trim($lines[$stripped]) === '') {
+            $stripped++;
+        }
+
+        // Only catch a stray H2 (`## …`). A `###` or deeper heading is
+        // a legitimate subsection title and must be kept.
+        if (! isset($lines[$stripped]) || preg_match('/^##\s+\S/', $lines[$stripped]) !== 1) {
+            return $body;
+        }
+
+        $stripped++;
+
+        while (isset($lines[$stripped]) && trim($lines[$stripped]) === '') {
+            $stripped++;
+        }
+
+        return ltrim(implode("\n", array_slice($lines, $stripped)), "\n");
+    }
+
+    /**
      * Parse the `## Теоретические задания` section into theory task
      * attributes (docs/mysql-lesson-rule.md §2).
      *
@@ -461,7 +507,7 @@ class MysqlCourseSeeder extends Seeder
      * Parse the `## Практические задания` section into practice task
      * attributes (docs/mysql-lesson-rule.md §3, §5). `expected_columns`
      * comes from the table header row and feeds the canonical hash
-     * exactly like in DemoCourseSeeder.
+     * exactly the same way the practice runtime compares attempts.
      *
      * @return list<array{order: int, statement: string, expected_result_text: string, seed_sql: string, expected_columns: list<string>, expected_rows: list<array<string, string|null>>, runtime: PracticeRuntime}>
      */
