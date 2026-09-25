@@ -416,11 +416,11 @@ watch(
             <div class="mt-6 flex flex-wrap gap-2">
                 <button
                     type="button"
-                    class="px-4 py-2 rounded border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
+                    class="px-4 py-2 rounded border text-sm font-medium"
                     :class="activeStage === STAGES.MATERIAL ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
                     @click="goToStage(STAGES.MATERIAL)"
                 >
-                    1. Материал
+                    1. Изучение
                 </button>
                 <button
                     v-if="previewMode || hasTheoryTasks"

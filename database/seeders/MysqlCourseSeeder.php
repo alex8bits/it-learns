@@ -169,6 +169,14 @@ class MysqlCourseSeeder extends Seeder
             throw new RuntimeException("[mysql] `{$filename}`: файл пуст или не читается.");
         }
 
+        // Ensure UTF-8 encoding: markdown files are UTF-8, but
+        // file_get_contents() on Windows may misinterpret them. If the
+        // content is not valid UTF-8 (mb_check_encoding fails), try to
+        // convert from Windows-1251 (common Windows Cyrillic fallback).
+        if (! mb_check_encoding($raw, 'UTF-8')) {
+            $raw = mb_convert_encoding($raw, 'UTF-8', 'Windows-1251');
+        }
+
         $content = str_replace("\r\n", "\n", str_replace("\u{FEFF}", '', $raw));
 
         [$frontmatter, $body] = $this->splitFrontmatter($content, $filename);
