@@ -14,8 +14,9 @@ use Tests\TestCase;
  * санитизация через HTMLPurifier перед возвратом клиенту. Тесты
  * изолированы от БД (массив-кеш в .env.testing → CACHE_STORE=array):
  * render пустой/null, render базовой markdown-разметки, cache hit
- * (повторный render без re-convert), invalidation через `forget`,
- * и три XSS-вектора — `<script>`, `<iframe>`, `javascript:` URL.
+ * (повторный render без re-convert), защита от cache poisoning
+ * пустой строкой, invalidation через `forget`, и три XSS-вектора —
+ * `<script>`, `<iframe>`, `javascript:` URL.
  */
 class MaterialRendererTest extends TestCase
 {
@@ -78,8 +79,48 @@ class MaterialRendererTest extends TestCase
 
         $second = $this->renderer->render(20, '# Second version that should NOT appear');
 
-        $this->assertSame($first, '<h1>First version</h1>');
+        $this->assertNotNull($first);
+        $this->assertStringContainsString('<h1>First version</h1>', $first);
         $this->assertSame('<cached>marker</cached>', $second);
+        // Первый рендер не должен случайно вернуть то, что мы положили в кеш.
+        $this->assertNotSame($second, $first);
+    }
+
+    public function test_render_does_not_cache_empty_html(): void
+    {
+        // Cache-poisoning guard: render() ни в коем случае не должен
+        // записывать пустую строку в кеш — иначе урок, у которого
+        // хотя бы раз был пустой material, навсегда перестаёт
+        // показывать контент (Vue видит falsy `material_html` и
+        // рисует fallback «В этом уроке нет материала»).
+        //
+        // Первый вызов с пустым material — null, ничего не кешируется.
+        $this->assertNull($this->renderer->render(60, ''));
+        $this->assertNull(Cache::store('array')->get('lesson:material_html:60'));
+
+        // Второй вызов с реальным markdown на тот же lesson id — рендерится
+        // и попадает в кеш, никаких следов предыдущего пустого рендера.
+        $html = $this->renderer->render(60, '# Hello');
+
+        $this->assertNotNull($html);
+        $this->assertStringContainsString('Hello', $html);
+        $this->assertSame($html, Cache::store('array')->get('lesson:material_html:60'));
+    }
+
+    public function test_render_ignores_empty_string_already_in_cache(): void
+    {
+        // Регресс-страховка: если в кеше по какой-то причине остался
+        // пустой HTML (например, после отката логики или ручной чистки
+        // только material в БД), рендерер должен это распознать как
+        // cache miss и отрендерить заново — а не вернуть пустоту.
+        Cache::store('array')->put('lesson:material_html:61', '', null);
+
+        $html = $this->renderer->render(61, '# Recovered');
+
+        $this->assertNotNull($html);
+        $this->assertStringContainsString('Recovered', $html);
+        // И сразу записать валидный HTML в кеш.
+        $this->assertNotEmpty(Cache::store('array')->get('lesson:material_html:61'));
     }
 
     public function test_invalidate_clears_cached_html_so_next_render_recomputes(): void
@@ -92,8 +133,9 @@ class MaterialRendererTest extends TestCase
 
         $this->renderer->invalidate(30);
 
-        // После invalidate() кеша нет, но `rememberForever` тут же
-        // запишет заново — проверим, что новое содержимое появляется.
+        // После invalidate() в кеше чисто, но мы дополнительно проверяем,
+        // что render() пере-конвертирует и сохранит новый HTML, а не
+        // вернёт протухшее значение.
         Cache::store('array')->forget('lesson:material_html:30');
 
         $html = $this->renderer->render(30, '# New');

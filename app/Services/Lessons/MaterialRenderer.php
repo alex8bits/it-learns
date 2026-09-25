@@ -48,6 +48,13 @@ class MaterialRenderer
      * fragment with no wrapping <html>/<body>, sanitised through
      * HTMLPurifier so it is safe to embed with `v-html` on the
      * client.
+     *
+     * The cache is read-then-write explicitly (instead of `rememberForever`)
+     * so that a transient empty render cannot poison the cache with an
+     * empty string — once a non-empty HTML is cached for a lesson id, it
+     * is reused forever (until `invalidate()` runs after an admin update).
+     * If a previous run somehow cached `""` for this id, we treat it as
+     * a miss and re-render.
      */
     public function render(int $lessonId, ?string $material): ?string
     {
@@ -57,12 +64,26 @@ class MaterialRenderer
 
         $cacheKey = self::CACHE_KEY_PREFIX.$lessonId;
 
-        return $this->cache->rememberForever($cacheKey, function () use ($material): string {
-            $converter = new MarkdownConverter($this->buildEnvironment());
-            $rawHtml = (string) $converter->convert($material);
+        $cached = $this->cache->get($cacheKey);
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
 
-            return $this->purifier()->purify($rawHtml);
-        });
+        $converter = new MarkdownConverter($this->buildEnvironment());
+        $rawHtml = (string) $converter->convert($material);
+        $rendered = (string) $this->purifier()->purify($rawHtml);
+
+        if (trim($rendered) === '') {
+            // Defense-in-depth: sanitizer stripped the whole markdown
+            // (rare; e.g. an XSS-only source). Don't cache the empty
+            // fragment — next call will re-render and may produce
+            // something different if material changes upstream.
+            return null;
+        }
+
+        $this->cache->forever($cacheKey, $rendered);
+
+        return $rendered;
     }
 
     /**

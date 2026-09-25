@@ -95,4 +95,60 @@ class LessonShowTest extends TestCase
         // полностраничный визит гостя на /login.
         $response->assertRedirect(route('login'));
     }
+
+    public function test_material_html_is_non_empty_string_when_material_is_non_empty(): void
+    {
+        // Регресс-страховка под Этап 8 фичи lesson-staged-flow:
+        // если в БД у урока есть непустой `material`, фронт должен
+        // получить НЕ-null и НЕ-пустой `material_html` —
+        // иначе Vue отрисует fallback «В этом уроке нет материала».
+        // Это закрывает целый класс багов: cache poisoning
+        // (MaterialRenderer не должен сохранять пустую строку),
+        // падение MaterialRenderer, потеря `$lesson->material` в
+        // eager-load и т.п.
+        $user = User::factory()->create();
+        $course = Course::factory()->published()->create();
+        $level = Level::factory()->for($course)->create(['order' => 1]);
+        $lesson = Lesson::factory()->for($level)->create([
+            'order' => 1,
+            // Эмулируем то, что лежит в lessons.material после
+            // MysqlCourseSeeder (без зависимости от самих md-файлов):
+            // markdown с заголовком + абзацем, который однозначно
+            // должен попасть в HTMLPurifier-санитизированный вывод.
+            'material' => "## Проблема\n\n### Как хранить данные\n\nНачнём с примера.",
+        ]);
+
+        $response = $this->actingAs($user)->get(route('lessons.show', $lesson->slug));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            ->where('lesson.id', $lesson->id)
+            // material_html — строка, не null, не пустая, и видимый
+            // текст из markdown действительно попал в HTML.
+            ->where('lesson.material_html', fn ($html): bool => is_string($html)
+                && $html !== ''
+                && str_contains($html, 'Как хранить данные')
+                && str_contains($html, 'Начнём с примера.')));
+    }
+
+    public function test_material_html_is_null_when_material_is_empty(): void
+    {
+        // Зеркальная проверка: пустой material в БД — фронт получает
+        // null и рисует fallback «В этом уроке нет материала». Это
+        // контракт MaterialRenderer (см. `MaterialRenderer::render`).
+        $user = User::factory()->create();
+        $course = Course::factory()->published()->create();
+        $level = Level::factory()->for($course)->create(['order' => 1]);
+        $lesson = Lesson::factory()->for($level)->create([
+            'order' => 1,
+            'material' => '',
+        ]);
+
+        $response = $this->actingAs($user)->get(route('lessons.show', $lesson->slug));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->where('lesson.material_html', null));
+    }
 }

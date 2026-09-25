@@ -453,7 +453,6 @@ watch(
                 v-show="activeStage === STAGES.MATERIAL"
                 class="mt-6 bg-white rounded-lg shadow border border-gray-200 p-6"
             >
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">Материал</h2>
                 <!-- Материал рендерится на сервере (см. MaterialRenderer);
                      v-html вставляет доверенный HTML (HTMLPurifier-санитизированный
                      на бэкенде). Стилизация — через .lesson-material
