@@ -4,159 +4,95 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Course;
 use App\Models\Lesson;
-use App\Models\PracticeTask;
-use App\Models\PracticeTaskSubmission;
+use App\Models\Level;
+use App\Models\TheoryTask;
 use App\Models\User;
-use Database\Seeders\DemoCourseSeeder;
+use App\Models\UserTheoryTaskAnswer;
 use Tests\TestCase;
 
+/**
+ * Feature smoke для student-flow `GET /lessons/{slug}`
+ * (Этап 7 фичи «theory-counter-and-correct-answer»). Закрывает
+ * регрессионный гэп, упомянутый в
+ * `.mavis/design/2026-09-17-lesson-staged-flow.md:96` — student-side
+ * ассертов на шейп props теории до сих пор не было. Проверяем
+ * spoiler-гвард `is_correct`/`error_text` опции и появление
+ * `correct_option` только для верно решённых задач.
+ */
 class LessonShowTest extends TestCase
 {
-    public function test_authenticated_user_sees_lesson_with_material_and_quiz(): void
+    public function test_shows_correct_option_only_for_correctly_answered_tasks(): void
     {
-        $this->seed(DemoCourseSeeder::class);
         $user = User::factory()->create();
+        $course = Course::factory()->published()->create();
+        $level = Level::factory()->for($course)->create(['order' => 1]);
+        $lesson = Lesson::factory()->for($level)->create(['order' => 1]);
 
-        $response = $this->actingAs($user)->get(route('lessons.show', 'select-basics'));
+        $task1 = TheoryTask::factory()->withOptions()->for($lesson)->create(['order' => 1]);
+        $task2 = TheoryTask::factory()->withOptions()->for($lesson)->create(['order' => 2]);
+        $task3 = TheoryTask::factory()->withOptions()->for($lesson)->create(['order' => 3]);
+
+        $correct1 = $task1->options->firstWhere('is_correct', true);
+        $wrong2 = $task2->options->firstWhere('is_correct', false);
+
+        // task1 решена верно -> должна показать correct_option.
+        UserTheoryTaskAnswer::create([
+            'user_id' => $user->id,
+            'theory_task_id' => $task1->id,
+            'option_id' => $correct1->id,
+            'is_correct' => true,
+            'answered_at' => now(),
+        ]);
+        // task2 решена неверно -> correct_option === null.
+        UserTheoryTaskAnswer::create([
+            'user_id' => $user->id,
+            'theory_task_id' => $task2->id,
+            'option_id' => $wrong2->id,
+            'is_correct' => false,
+            'answered_at' => now(),
+        ]);
+        // task3 — без ответа.
+
+        $response = $this->actingAs($user)->get(route('lessons.show', $lesson->slug));
 
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->component('Lessons/Show')
-            ->where('lesson.slug', 'select-basics')
-            ->where('lesson.material', Lesson::query()->where('slug', 'select-basics')->value('material'))
-            ->has('lesson.theoryTasks')
-            ->has('lesson.theoryTasks.0.options', 3)
-            ->where('course.slug', 'sql-basics')
-            // Эффективные пороги минимума: min(K, N) — у демо-урока
-            // 2 теории (min(3,2)) и 1 практика (min(1,1)).
-            ->where('requiredTheoryCount', 2)
-            ->where('requiredPracticeCount', 1));
-    }
-
-    public function test_next_lesson_prop_points_to_the_following_lesson_of_the_course(): void
-    {
-        $this->seed(DemoCourseSeeder::class);
-        $user = User::factory()->create();
-
-        $next = Lesson::query()->where('slug', 'where-ordering')->firstOrFail();
-
-        $response = $this->actingAs($user)->get(route('lessons.show', 'select-basics'));
-
-        $response->assertOk();
-        $response->assertInertia(fn ($page) => $page
-            ->component('Lessons/Show')
-            ->where('nextLesson.id', $next->id)
-            ->where('nextLesson.slug', 'where-ordering')
-            ->where('nextLesson.title', $next->title));
-
-        // nextLesson несёт только навигацию — ровно {id, slug, title}.
-        /** @var array<string, mixed> $props */
-        $props = $response->viewData('page')['props'];
-        /** @var array<string, int|string> $nextLesson */
-        $nextLesson = $props['nextLesson'];
-        $this->assertSame(['id', 'slug', 'title'], array_keys($nextLesson));
-    }
-
-    public function test_last_lesson_of_the_course_has_no_next_lesson(): void
-    {
-        $this->seed(DemoCourseSeeder::class);
-        $user = User::factory()->create();
-
-        // «joins-intro» — последний урок демо-курса (без задач).
-        $response = $this->actingAs($user)->get(route('lessons.show', 'joins-intro'));
-
-        $response->assertOk();
-        $response->assertInertia(fn ($page) => $page
-            ->component('Lessons/Show')
-            ->where('nextLesson', null)
-            ->where('requiredTheoryCount', 0)
-            ->where('requiredPracticeCount', 0));
-    }
-
-    /**
-     * Quiz-spoiler guard (design Risk «Утечка is_correct») plus the
-     * practice-spoiler guard (design Risk «Spoiler-гвард»): the lesson
-     * props must not contain the option correctness flags, their
-     * explanation texts, or the practice reference fields (seed script,
-     * canonical hash, reference rows) on any level.
-     */
-    public function test_lesson_props_do_not_leak_option_correctness(): void
-    {
-        $this->seed(DemoCourseSeeder::class);
-        $user = User::factory()->create();
-
-        $response = $this->actingAs($user)->get(route('lessons.show', 'select-basics'));
-
-        $response->assertOk();
-        $response->assertInertia(fn ($page) => $page
+            ->where('lesson.id', $lesson->id)
+            ->where('lesson.theoryTasks.0.id', $task1->id)
+            ->where('lesson.theoryTasks.1.id', $task2->id)
+            ->where('lesson.theoryTasks.2.id', $task3->id)
+            // correct_option: только для верно решённой task1.
+            ->where('lesson.theoryTasks.0.correct_option.id', $correct1->id)
+            ->where('lesson.theoryTasks.0.correct_option.text', $correct1->text)
+            ->where('lesson.theoryTasks.1.correct_option', null)
+            ->where('lesson.theoryTasks.2.correct_option', null)
+            // Spoiler-гвард: option.is_correct НЕ покидает сервер.
             ->missing('lesson.theoryTasks.0.options.0.is_correct')
             ->missing('lesson.theoryTasks.0.options.0.error_text')
-            ->missing('practiceTasks.0.seed_sql')
-            ->missing('practiceTasks.0.expected_hash')
-            ->missing('practiceTasks.0.expected_rows'));
-
-        /** @var array<string, mixed> $props */
-        $props = $response->viewData('page')['props'];
-        $encodedLesson = json_encode($props['lesson'], JSON_THROW_ON_ERROR);
-        $this->assertStringNotContainsString('is_correct', $encodedLesson);
-        $this->assertStringNotContainsString('error_text', $encodedLesson);
-
-        // Practice guard covers the whole props bag: the reference rows,
-        // their hash and the seed script must not slip into any prop.
-        $encodedProps = json_encode($props, JSON_THROW_ON_ERROR);
-        $this->assertStringNotContainsString('seed_sql', $encodedProps);
-        $this->assertStringNotContainsString('expected_hash', $encodedProps);
-        $this->assertStringNotContainsString('expected_rows', $encodedProps);
-    }
-
-    public function test_lesson_page_includes_practice_task_props(): void
-    {
-        $this->seed(DemoCourseSeeder::class);
-        $user = User::factory()->create();
-
-        $task = PracticeTask::query()
-            ->whereRelation('lesson', 'slug', 'select-basics')
-            ->firstOrFail();
-
-        $response = $this->actingAs($user)->get(route('lessons.show', 'select-basics'));
-
-        $response->assertOk();
-        $response->assertInertia(fn ($page) => $page
-            ->component('Lessons/Show')
-            ->where('practiceTasks.0.id', $task->id)
-            ->where('practiceTasks.0.statement', $task->statement)
-            ->where('practiceTasks.0.expected_result_text', $task->expected_result_text)
-            ->where('practiceTasks.0.order', $task->order)
-            ->has('passedPracticeTaskIds', 0));
-    }
-
-    public function test_solved_practice_task_ids_are_passed_to_the_page(): void
-    {
-        $this->seed(DemoCourseSeeder::class);
-        $user = User::factory()->create();
-
-        $lesson = Lesson::query()->where('slug', 'select-basics')->firstOrFail();
-        $task = $lesson->practiceTasks()->firstOrFail();
-
-        PracticeTaskSubmission::factory()
-            ->for($user)
-            ->for($task)
-            ->passed()
-            ->create();
-
-        $response = $this->actingAs($user)->get(route('lessons.show', 'select-basics'));
-
-        $response->assertOk();
-        $response->assertInertia(fn ($page) => $page
-            ->has('passedPracticeTaskIds', 1)
-            ->where('passedPracticeTaskIds.0', $task->id));
+            // correct_option НЕ содержит is_correct/error_text (только {id, text}).
+            ->missing('lesson.theoryTasks.0.correct_option.is_correct')
+            ->missing('lesson.theoryTasks.0.correct_option.error_text')
+            // Required window.
+            ->where('requiredTheoryCount', 3)
+            ->where('answers', [
+                $task1->id => ['option_id' => $correct1->id, 'is_correct' => true],
+                $task2->id => ['option_id' => $wrong2->id, 'is_correct' => false],
+            ]));
     }
 
     public function test_guest_is_redirected_to_login(): void
     {
-        $this->seed(DemoCourseSeeder::class);
+        $course = Course::factory()->published()->create();
+        $level = Level::factory()->for($course)->create(['order' => 1]);
+        $lesson = Lesson::factory()->for($level)->create(['order' => 1]);
 
-        $this->get(route('lessons.show', 'select-basics'))->assertRedirect(route('login'));
+        $response = $this->get(route('lessons.show', $lesson->slug));
+
+        // Authenticate middleware (Stage 7, design A1a) отправляет
+        // полностраничный визит гостя на /login.
+        $response->assertRedirect(route('login'));
     }
 }

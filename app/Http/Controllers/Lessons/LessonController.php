@@ -17,6 +17,7 @@ use App\Models\TheoryTaskOption;
 use App\Models\UserLessonProgress;
 use App\Models\UserTheoryTaskAnswer;
 use App\Services\Courses\NextLessonResolver;
+use App\Services\Lessons\MaterialRenderer;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -31,7 +32,7 @@ use Inertia\Response;
  */
 class LessonController extends Controller
 {
-    public function show(Request $request, string $slug): Response
+    public function show(Request $request, string $slug, MaterialRenderer $renderer): Response
     {
         $lesson = Lesson::query()
             ->published()
@@ -51,12 +52,17 @@ class LessonController extends Controller
 
         $user = $request->user();
 
+        // Resolved once per request and reused by both the `theoryTasks`
+        // mapper (for the `correct_option` field) and the `answers` prop
+        // — see buildCorrectOptionFor() for the spoiler-guard exception.
+        $userAnswers = $this->userAnswers($user->id, $lesson);
+
         return Inertia::render('Lessons/Show', [
             'lesson' => [
                 'id' => $lesson->id,
                 'slug' => $lesson->slug,
                 'title' => $lesson->title,
-                'material' => $lesson->material,
+                'material_html' => $renderer->render($lesson->id, $lesson->material),
                 'theoryTasks' => $lesson->theoryTasks
                     ->map(fn (TheoryTask $task): array => [
                         'id' => $task->id,
@@ -72,6 +78,11 @@ class LessonController extends Controller
                             ])
                             ->values()
                             ->all(),
+                        // Narrow spoiler-guard exception: aggregate {id, text}
+                        // of the correct option, non-null only for tasks the
+                        // user has already answered correctly. See
+                        // buildCorrectOptionFor() for the full rationale.
+                        'correct_option' => $this->buildCorrectOptionFor($task, $userAnswers),
                     ])
                     ->values()
                     ->all(),
@@ -84,7 +95,7 @@ class LessonController extends Controller
                 'slug' => $course->slug,
                 'title' => $course->title,
             ],
-            'answers' => $this->userAnswers($user->id, $lesson),
+            'answers' => $userAnswers,
             'lessonStatus' => $this->lessonStatus($user->id, $lesson),
             'feedback' => $request->session()->get('theory_feedback'),
             'practiceTasks' => $lesson->practiceTasks
@@ -149,6 +160,38 @@ class LessonController extends Controller
                 'is_correct' => $answer->is_correct,
             ])
             ->all();
+    }
+
+    /**
+     * Aggregate {id, text} of the correct option for $task — but ONLY if the
+     * user has already answered this task correctly. Returns null otherwise:
+     * - task has no answer in $userAnswers;
+     * - task has an answer with is_correct === false;
+     * - the correct option was cascade-deleted (rare, admin option edit).
+     *
+     * This is a deliberate, narrow exception to the quiz spoiler guard
+     * (LessonController::show + docs/concept.md:96-99 +
+     * docs/progress-plan.md:180-183): the user has already solved the
+     * question — there is no point in hiding the correct answer any
+     * more. The spoiler still holds for `options[].is_correct` and for
+     * `options[].error_text` — those fields never leave the server.
+     *
+     * @param  array<int, array{option_id: int, is_correct: bool}>  $userAnswers
+     * @return array{id: int, text: string}|null
+     */
+    private function buildCorrectOptionFor(TheoryTask $task, array $userAnswers): ?array
+    {
+        $answer = $userAnswers[$task->id] ?? null;
+        if ($answer === null || $answer['is_correct'] !== true) {
+            return null;
+        }
+
+        $correct = $task->options->firstWhere('is_correct', true);
+        if ($correct === null) {
+            return null;
+        }
+
+        return ['id' => $correct->id, 'text' => $correct->text];
     }
 
     /**

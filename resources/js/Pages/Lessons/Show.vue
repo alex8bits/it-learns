@@ -110,6 +110,18 @@ const theoryMinimumDone = computed(() =>
     props.requiredTheoryCount === 0
     || requiredTheoryTasks.value.every((task) => isAnsweredCorrectly(task.id)),
 );
+
+// Индекс текущего вопроса внутри обязательного окна (0-based).
+// null, если currentTask === null (все решено) или currentTask вне
+// required-окна (например, optional reserve задача). Шаблон
+// карточки использует это для условного «Вопрос K из M» / fallback.
+const currentTaskIndexInRequired = computed(() => {
+    if (!currentTask.value) {
+        return null;
+    }
+    const idx = requiredTheoryTasks.value.findIndex((t) => t.id === currentTask.value.id);
+    return idx === -1 ? null : idx;
+});
 const requiredPracticeTasks = computed(() => props.practiceTasks.slice(0, props.requiredPracticeCount));
 const practiceMinimumDone = computed(() =>
     props.requiredPracticeCount === 0
@@ -442,7 +454,15 @@ watch(
                 class="mt-6 bg-white rounded-lg shadow border border-gray-200 p-6"
             >
                 <h2 class="text-xl font-semibold text-gray-900 mb-4">Материал</h2>
-                <p v-if="lesson.material" class="text-gray-700 whitespace-pre-line">{{ lesson.material }}</p>
+                <!-- Материал рендерится на сервере (см. MaterialRenderer);
+                     v-html вставляет доверенный HTML (HTMLPurifier-санитизированный
+                     на бэкенде). Стилизация — через .lesson-material
+                     (resources/css/app.css). -->
+                <div
+                    v-if="lesson.material_html"
+                    class="lesson-material text-gray-800"
+                    v-html="lesson.material_html"
+                ></div>
                 <p v-else class="text-gray-500">В этом уроке нет материала для чтения</p>
 
                 <!-- CTA снимает блокировку заданий и открывает следующую
@@ -508,10 +528,19 @@ watch(
                             <li
                                 v-for="task in solvedTasks"
                                 :key="task.id"
-                                class="flex items-start gap-2 text-sm text-gray-600"
+                                class="flex flex-col gap-1 text-sm text-gray-600"
                             >
-                                <span class="text-green-600">✓</span>
-                                {{ task.question }}
+                                <div class="flex items-start gap-2">
+                                    <span class="text-green-600">✓</span>
+                                    <span>{{ task.question }}</span>
+                                </div>
+                                <div
+                                    v-if="task.correct_option"
+                                    class="ml-6 text-xs text-gray-500"
+                                >
+                                    Правильный ответ:
+                                    <span class="font-medium text-gray-700">{{ task.correct_option.text }}</span>
+                                </div>
                             </li>
                         </ul>
                     </div>
@@ -533,7 +562,14 @@ watch(
                         v-if="currentTask && (!theoryMinimumDone || optionalTheoryOpen)"
                         class="bg-white rounded-lg shadow border border-gray-200 p-6"
                     >
-                        <p class="text-sm text-gray-500 mb-2">Вопрос {{ currentTask.order }}</p>
+                        <p class="text-sm text-gray-500 mb-2">
+                            <template v-if="currentTaskIndexInRequired !== null">
+                                Вопрос {{ currentTaskIndexInRequired + 1 }} из {{ requiredTheoryTasks.length }}
+                            </template>
+                            <template v-else>
+                                Вопрос {{ currentTask.order }}
+                            </template>
+                        </p>
                         <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ currentTask.question }}</h3>
 
                         <form @submit.prevent="submit">

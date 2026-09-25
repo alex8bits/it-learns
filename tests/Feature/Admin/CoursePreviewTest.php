@@ -93,6 +93,10 @@ class CoursePreviewTest extends TestCase
             // Spoiler guards survive the preview: the admin sees exactly
             // what a student sees.
             ->missing('lesson.theoryTasks.0.options.0.is_correct')
+            // Preview never answers questions, so correct_option is always
+            // null — mirrors LessonController::show shape (where the field
+            // is null unless the user solved the task).
+            ->where('lesson.theoryTasks.0.correct_option', null)
             ->where('practiceTasks.0.statement', $practiceTask->statement)
             ->missing('practiceTasks.0.seed_sql')
             ->where('course.id', $course->id)

@@ -12,6 +12,7 @@ use App\Models\PracticeTask;
 use App\Models\TheoryTask;
 use App\Models\TheoryTaskOption;
 use App\Services\Courses\NextLessonResolver;
+use App\Services\Lessons\MaterialRenderer;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -67,7 +68,7 @@ class CoursePreviewController extends Controller
      * except everything user-specific is empty and `previewMode`
      * switches the Vue page to read-only rendering.
      */
-    public function lesson(Request $request, Course $course, Lesson $lesson): Response
+    public function lesson(Request $request, Course $course, Lesson $lesson, MaterialRenderer $renderer): Response
     {
         $lesson->load('level');
         abort_unless($lesson->level->course_id === $course->id, 404);
@@ -87,6 +88,7 @@ class CoursePreviewController extends Controller
                 'slug' => $lesson->slug,
                 'title' => $lesson->title,
                 'material' => $lesson->material,
+                'material_html' => $renderer->render($lesson->id, $lesson->material),
                 'is_published' => $lesson->is_published,
                 'theoryTasks' => $lesson->theoryTasks
                     ->map(fn (TheoryTask $task): array => [
@@ -105,6 +107,11 @@ class CoursePreviewController extends Controller
                             ])
                             ->values()
                             ->all(),
+                        // Preview is read-only — the admin never answers
+                        // questions, so correct_option is always null.
+                        // Mirror LessonController::show shape so the Vue
+                        // page treats preview and user-flow uniformly.
+                        'correct_option' => null,
                     ])
                     ->values()
                     ->all(),

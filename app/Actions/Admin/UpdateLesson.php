@@ -8,11 +8,15 @@ use App\Enums\AdminAuditAction;
 use App\Models\Lesson;
 use App\Models\User;
 use App\Services\Admin\AdminAuditLogger;
+use App\Services\Lessons\MaterialRenderer;
 use Illuminate\Support\Facades\DB;
 
 class UpdateLesson
 {
-    public function __construct(private AdminAuditLogger $audit) {}
+    public function __construct(
+        private AdminAuditLogger $audit,
+        private MaterialRenderer $renderer,
+    ) {}
 
     /**
      * Update a lesson's mutable fields, audited atomically as
@@ -46,6 +50,11 @@ class UpdateLesson
             }
 
             $lesson->fill($payload)->save();
+
+            // Любая правка материала (или просто save() без изменений —
+            // дёшево и устраняет класс ошибок «забыл сбросить кэш»)
+            // требует свежего HTML-рендера на следующем чтении.
+            $this->renderer->invalidate($lesson->id);
 
             $this->audit->log(AdminAuditAction::LessonUpdated, $lesson, [
                 'slug' => $lesson->slug,
