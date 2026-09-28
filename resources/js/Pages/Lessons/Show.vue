@@ -1,5 +1,6 @@
 <script setup>
 import Button from '../../Components/Button.vue';
+import PracticeTerminal from '../../Components/PracticeTerminal.vue';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 
@@ -156,21 +157,6 @@ const shownPracticeFeedback = computed(() => {
     return isForCurrentTask || isJustPassed ? feedback : null;
 });
 
-// Колонки таблицы диффа — ключи первой строки результата.
-const diffColumns = (rows) => (Array.isArray(rows) && rows.length > 0 ? Object.keys(rows[0]) : []);
-
-const diffSides = computed(() => {
-    const feedback = shownPracticeFeedback.value;
-    if (!feedback || feedback.status !== 'failed' || !feedback.diff) {
-        return [];
-    }
-
-    return [
-        { title: 'Эталон', rows: feedback.diff.expected ?? [] },
-        { title: 'Ваш результат', rows: feedback.diff.actual ?? [] },
-    ];
-});
-
 const form = useForm({ option_id: null });
 
 const submit = () => {
@@ -181,11 +167,53 @@ const submit = () => {
 
 const practiceForm = useForm({ code: '' });
 
+// Клиентский журнал команд терминала: накапливается между попытками в
+// рамках одного задания, очищается при смене currentPracticeTask
+// (см. watcher ниже). Не персистится — после F5 стартует заново
+// (non-goal дизайна).
+const practiceHistory = ref([]);
+let practiceHistorySeq = 0;
+const pendingPracticeCode = ref('');
+
 const submitPractice = () => {
+    // Захватываем текст запроса до отправки: practiceForm.code будет
+    // очищен ниже в watcher'е practiceFeedback, чтобы запись в истории
+    // гарантированно содержала именно тот SQL, который ученик отправил.
+    pendingPracticeCode.value = practiceForm.code;
     // POST → 303 back: страница перечитает passedPracticeTaskIds и flash
     // practice_feedback на сервере (тот же паттерн, что и quiz-форма).
     practiceForm.post(`/practice-tasks/${currentPracticeTask.value.id}/submit`);
 };
+
+// Пополняем журнал при приходе релевантного practiceFeedback (тот же
+// критерий релевантности, что и в shownPracticeFeedback выше).
+// busy-попытки записи не создают — на них ученик повторяет отправку
+// без потери введённого кода.
+watch(
+    () => props.practiceFeedback,
+    (feedback) => {
+        if (!feedback || feedback.status === 'busy') {
+            return;
+        }
+
+        const isForCurrentTask = feedback.task_id === currentPracticeTask.value?.id;
+        const isJustPassed =
+            feedback.status === 'passed' && props.passedPracticeTaskIds.includes(feedback.task_id);
+        if (!isForCurrentTask && !isJustPassed) {
+            return;
+        }
+
+        practiceHistory.value.push({
+            id: ++practiceHistorySeq,
+            code: pendingPracticeCode.value,
+            status: feedback.status,
+            result: feedback.result,
+            diff: feedback.diff,
+            error_text: feedback.error_text,
+        });
+        practiceForm.code = '';
+    },
+);
 
 // ---------- Премиум ИИ (Этап 8) ----------
 
@@ -355,6 +383,10 @@ watch(
     () => currentPracticeTask.value?.id ?? null,
     () => {
         optionalPracticeOpen.value = false;
+        // Новое задание — чистый терминал: история команд относится
+        // к предыдущему заданию и в новом контексте будет вводить
+        // в заблуждение.
+        practiceHistory.value = [];
     },
 );
 </script>
@@ -659,55 +691,6 @@ watch(
                 >
                     Верно!
                 </p>
-                <div
-                    v-else-if="shownPracticeFeedback && shownPracticeFeedback.status === 'error'"
-                    class="mb-4 rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm"
-                >
-                    <p class="font-medium mb-1">Ошибка исполнения</p>
-                    <p v-if="shownPracticeFeedback.error_text" class="whitespace-pre-line">
-                        {{ shownPracticeFeedback.error_text }}
-                    </p>
-                </div>
-                <div
-                    v-else-if="shownPracticeFeedback && shownPracticeFeedback.status === 'failed'"
-                    class="mb-4 rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm"
-                >
-                    <p class="font-medium mb-2">Неверно — результат не совпал с эталоном.</p>
-                    <p v-if="shownPracticeFeedback.result && shownPracticeFeedback.result.error" class="mb-2">
-                        {{ shownPracticeFeedback.result.error }}
-                    </p>
-
-                    <div v-if="diffSides.length > 0" class="grid gap-4 md:grid-cols-2">
-                        <div v-for="side in diffSides" :key="side.title">
-                            <p class="font-medium text-gray-700 mb-1">{{ side.title }}</p>
-                            <table v-if="side.rows.length > 0" class="w-full text-left border border-gray-200 text-xs">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th
-                                            v-for="column in diffColumns(side.rows)"
-                                            :key="column"
-                                            class="border-b border-gray-200 px-2 py-1 font-medium text-gray-600"
-                                        >
-                                            {{ column }}
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="(row, rowIndex) in side.rows" :key="rowIndex">
-                                        <td
-                                            v-for="column in diffColumns(side.rows)"
-                                            :key="column"
-                                            class="border-b border-gray-100 px-2 py-1 text-gray-700"
-                                        >
-                                            {{ row[column] }}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <p v-else class="text-xs text-gray-500">Запрос не вернул строк</p>
-                        </div>
-                    </div>
-                </div>
 
                 <div v-if="canRequestAiFeedback" class="mb-4">
                     <Button
@@ -743,28 +726,19 @@ watch(
                         Ожидаемый результат: {{ currentPracticeTask.expected_result_text }}
                     </p>
 
-                    <form @submit.prevent="submitPractice">
-                        <label class="block mb-3">
-                            <span class="text-sm text-gray-700">SQL-запрос</span>
-                            <textarea
-                                v-model="practiceForm.code"
-                                rows="6"
-                                placeholder="SELECT ..."
-                                class="mt-1 w-full px-3 py-2 border rounded-md font-mono text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                :class="practiceForm.errors.code ? 'border-red-400' : 'border-gray-300'"
-                            ></textarea>
-                        </label>
-                        <!-- Мульти-стейтменты разрешены (docker-драйвер):
-                             зачёт по result set последней инструкции. -->
-                        <p class="mb-3 text-xs text-gray-500">
-                            Можно несколько инструкций, разделённых «;». Зачёт по результату последней.
-                        </p>
-                        <p v-if="practiceForm.errors.code" class="mb-3 text-xs text-red-600 break-words">
-                            {{ practiceForm.errors.code }}
-                        </p>
+                    <!-- Мульти-стейтменты разрешены (docker-драйвер):
+                         зачёт по result set последней инструкции. -->
+                    <p class="mb-3 text-xs text-gray-500">
+                        Можно несколько инструкций, разделённых «;». Зачёт по результату последней.
+                    </p>
 
-                        <Button type="submit" :processing="practiceForm.processing">Отправить решение</Button>
-                    </form>
+                    <PracticeTerminal
+                        :entries="practiceHistory"
+                        v-model:code="practiceForm.code"
+                        :processing="practiceForm.processing"
+                        :code-error="practiceForm.errors.code"
+                        @submit="submitPractice"
+                    />
 
                     <div v-if="isPremium" class="mt-4 pt-4 border-t border-gray-200">
                         <Button
