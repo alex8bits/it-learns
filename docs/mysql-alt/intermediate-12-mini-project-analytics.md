@@ -185,4 +185,402 @@ ORDER BY total_spent DESC;
 
 ## Теоретические задания
 
+### Вопрос 1: Почему в задаче «топ-3 в каждой категории» нельзя отфильтровать строки по `rank_in_category` прямо в `WHERE` того же уровня SELECT, где вычисляется `ROW_NUMBER()`?
+
+- ✅ Оконная функция вычисляется после этапа WHERE (логический порядок выполнения запроса), поэтому её результат доступен только внешнему запросу — например, следующему CTE
+<!-- фильтрация по оконной функции всегда требует отдельного внешнего шага -->
+- ❌ Потому что `ROW_NUMBER()` нельзя использовать вместе с `GROUP BY` в одном запросе — error_text: Оконные функции и `GROUP BY` сочетаются: агрегат сворачивает строки, а оконная функция работает над уже свёрнутым результатом. Запрет именно на фильтрацию по оконной функции в `WHERE` того же уровня — из-за порядка вычислений (урок 6 уровня «Начинающий»).
+- ❌ Потому что `WHERE` умеет сравнивать только столбцы таблиц, а не выражения — error_text: `WHERE` принимает любые выражения уровня строк: арифметику, функции, подзапросы. Проблема не в выразительности, а в моменте вычисления — оконные функции считаются позже фильтрации.
+- ❌ Ограничение снимается, если заменить `ROW_NUMBER()` на `RANK()` — его можно фильтровать в WHERE — error_text: `RANK()` — тоже оконная функция и вычисляется так же после `WHERE`; фильтровать его в `WHERE` нельзя по той же причине. Различие между ними — в нумерации при равных значениях.
+
+### Вопрос 2: Что вернёт `LAG(revenue) OVER (ORDER BY month)` для самого первого месяца набора?
+
+- ✅ NULL — предыдущей строки в окне нет, и это осмысленное отсутствие значения, а не ошибка
+<!-- нет предыдущего месяца для сравнения -->
+- ❌ 0 — предыдущего месяца не было, значит разница отсчитывается от нуля — error_text: `LAG` возвращает именно NULL, а не 0: предыдущей строки в наборе просто нет — NULL как «значения нет» разобран в уроке 11 уровня «Основы». Поэтому и процент роста первого месяца получается NULL, а не 0%.
+- ❌ Ошибку выполнения: у первой строки нет предыдущей — error_text: Отсутствие предыдущей строки — не ошибка, а штатная ситуация: `LAG` честно возвращает NULL. Ошибкой было бы, например, обращение к несуществующей колонке (ошибка 1054, урок 8 уровня «Средний»).
+- ❌ Значение текущей строки — для первой строки LAG возвращает её же саму — error_text: `LAG` не «залипает» на текущем значении: без предыдущей строки он возвращает NULL. Значение по умолчанию можно задать третьим аргументом `LAG(столбец, 1, значение)`, но без него это NULL.
+
+### Вопрос 3: Почему в основе сегментации клиентов использован `LEFT JOIN` из `customers` в `orders`, а не `INNER JOIN`?
+
+- ✅ INNER JOIN незаметно исключил бы клиентов без единого заказа, а отчёт должен охватывать всех клиентов
+<!-- полный охват сущностей важнее удобства внутреннего соединения -->
+- ❌ LEFT JOIN всегда быстрее INNER JOIN на больших объёмах — error_text: Скорость здесь ни при чём: `LEFT JOIN` сохраняет все строки левой таблицы и обычно не дешевле `INNER JOIN`. Выбор продиктован смыслом — клиенты без заказов должны попасть в сегментацию, а с `INNER JOIN` они бы выпали (урок 14 уровня «Начинающий»).
+- ❌ INNER JOIN запрещён внутри определений VIEW — error_text: Внутри VIEW допустимы любые соединения, включая `INNER JOIN`: view — просто сохранённый `SELECT` (урок 11 уровня «Средний»), ограничений на тип JOIN в нём нет.
+- ❌ LEFT JOIN нужен, чтобы сумма по клиенту без заказов автоматически стала нулём — error_text: JOIN сам по себе даёт лишь NULL-расширенные строки; ноль получается из `COALESCE(SUM(...), 0)` (урок 11 уровня «Основы»). `LEFT JOIN` лишь удерживает клиента в результате.
+
+### Вопрос 4: Какую роль в дашборде сыграла VIEW?
+
+- ✅ Упаковала многошаговую аналитику в переиспользуемый интерфейс: сложность спрятана внутри, а обращение выглядит как простой SELECT
+<!-- переиспользуемость — про интерфейс, а не про сохранённый результат -->
+- ❌ VIEW зафиксировала результат сегментации, чтобы не пересчитывать его при каждом отчёте — error_text: Представление ничего не фиксирует и не кэширует: при каждом обращении оно выполняется заново над актуальными данными (урок 11 уровня «Средний»). Выгода — в переиспользуемом интерфейсе, а не в сохранённом результате.
+- ❌ VIEW заменила оконные функции, выполнив то же самое через GROUP BY — error_text: View не заменяет вычисления, а содержит их: внутри неё те же CTE и скалярные подзапросы. Задачи ранжирования внутри групп и сравнения со средним `GROUP BY` не решает.
+- ❌ VIEW ускорила запросы дашборда, материализовав промежуточные таблицы — error_text: Материализации промежуточных результатов view не делает — это не копия данных. Ускорение чтения за счёт дублирования — денормализация, отдельный осознанный приём (урок 11 уровня «Средний»).
+
+### Вопрос 5: Какова типовая архитектура сложного аналитического запроса, общая для всех трёх разделов дашборда?
+
+- ✅ Цепочка CTE: «сырая» агрегация → сравнение или ранжирование (оконная функция / подзапрос) → финальная фильтрация или категоризация
+<!-- каждый шаг прост, проверяем отдельно и читается по имени -->
+- ❌ Один большой вложенный подзапрос в WHERE, отбирающий готовые строки — error_text: Глубокая вложенность — анти-паттерн читаемости, который CTE и придумали заменять: цепочка именованных шагов читается, проверяется и объясняется по отдельности.
+- ❌ UNION ALL всех промежуточных результатов в один отчёт — error_text: `UNION ALL` склеивает результаты по вертикали (урок 3 уровня «Средний»), а здесь шаги не склеиваются, а продолжают друг друга: каждый следующий потребляет результат предыдущего.
+- ❌ Создание копий исходных таблиц под каждый раздел отчёта — error_text: Копирование данных — не аналитический приём, а источник рассинхронизации. Все разделы работают над одними и теми же таблицами через временные именованные результаты — CTE и VIEW.
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Динамика выручки по месяцам
+
+CTE с помесячной агрегацией и `LAG` для сравнения с прошлым месяцем;
+процент роста через `ROUND`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): WITH monthly_revenue AS (SELECT DATE_FORMAT(o.created_at, '%Y-%m') AS month, SUM(oi.quantity * oi.price) AS revenue FROM orders AS o JOIN order_items AS oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' GROUP BY DATE_FORMAT(o.created_at, '%Y-%m')) SELECT month, revenue, LAG(revenue) OVER (ORDER BY month) AS prev_revenue, ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) / LAG(revenue) OVER (ORDER BY month) * 100, 1) AS growth_percent FROM monthly_revenue ORDER BY month; -->
+
+**statement:**
+
+Таблицы `customers` (три покупателя), `products` (четыре товара),
+`orders` (семь заказов за март–июль 2026, один — `'cancelled'`) и
+`order_items` (11 позиций). Отменённые заказы в выручку не входят.
+
+Напишите запрос с CTE `monthly_revenue` — помесячная выручка: ключ
+месяца через `DATE_FORMAT(o.created_at, '%Y-%m')`, сумма
+`quantity * price`, только не отменённые заказы. Внешний запрос
+возвращает четыре столбца:
+
+- `month` — ключ месяца;
+- `revenue` — выручка месяца;
+- `prev_revenue` — выручка предыдущего месяца через
+  `LAG(...) OVER (ORDER BY month)`;
+- `growth_percent` — рост к прошлому месяцу в процентах
+  (`ROUND(..., 1)`); для первого месяца — NULL.
+
+Сортировка по `month`.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает пять строк — по месяцу с марта по июль
+2026. Для 2026-03 `prev_revenue` и `growth_percent` — NULL: предыдущего
+месяца в наборе нет. Далее: 2026-04 — 32800.00 против 41200.00
+(−20.4%); 2026-05 — 34000.00 (+3.7%); 2026-06 — 26900.00 (−20.9%);
+2026-07 — 41700.00 (+55.0%). Отменённый заказ конца апреля в выручку
+не входит.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Юлия Савельева', 'Тюмень'),
+    ('Роман Копылов', 'Волгоград'),
+    ('Дарья Шестакова', 'Иркутск');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO products (name, price) VALUES
+    ('Гитара акустическая', 21500.00),
+    ('Укулеле', 5400.00),
+    ('Синтезатор 61 клавиша', 32800.00),
+    ('Наушники студийные', 8900.00);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_o_cust FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (1, 'paid', '2026-03-12'),
+    (2, 'paid', '2026-03-28'),
+    (3, 'paid', '2026-04-15'),
+    (1, 'cancelled', '2026-04-29'),
+    (2, 'paid', '2026-05-20'),
+    (3, 'paid', '2026-06-07'),
+    (1, 'paid', '2026-07-19');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 2, 2, 5400.00),
+    (1, 4, 1, 8900.00),
+    (2, 1, 1, 21500.00),
+    (3, 3, 1, 32800.00),
+    (4, 1, 1, 21500.00),
+    (5, 2, 3, 5400.00),
+    (5, 4, 2, 8900.00),
+    (6, 1, 1, 21500.00),
+    (6, 2, 1, 5400.00),
+    (7, 3, 1, 32800.00),
+    (7, 4, 1, 8900.00);
+```
+
+**expected_rows:**
+
+| month   | revenue   | prev_revenue | growth_percent |
+| ------- | --------- | ------------ | -------------- |
+| 2026-03 | 41200.00  | NULL         | NULL           |
+| 2026-04 | 32800.00  | 41200.00     | -20.4          |
+| 2026-05 | 34000.00  | 32800.00     | 3.7            |
+| 2026-06 | 26900.00  | 34000.00     | -20.9          |
+| 2026-07 | 41700.00  | 26900.00     | 55.0           |
+
+**runtime:** mysql
+
+### Задание 2: Топ-2 товара в каждой категории
+
+Цепочка из двух CTE: агрегация продаж по товарам, затем
+`ROW_NUMBER() OVER (PARTITION BY ...)` и фильтрация во внешнем
+запросе.
+
+<!-- Эталонное решение (для автора/бота-верификатора): WITH product_sales AS (SELECT p.id AS product_id, p.name AS product_name, p.category_id, SUM(oi.quantity) AS units_sold FROM products AS p JOIN order_items AS oi ON oi.product_id = p.id JOIN orders AS o ON o.id = oi.order_id WHERE o.status <> 'cancelled' GROUP BY p.id, p.name, p.category_id), ranked_sales AS (SELECT product_name, category_id, units_sold, ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY units_sold DESC, product_name) AS rank_in_category FROM product_sales) SELECT cat.name AS category_name, rs.product_name, rs.units_sold, rs.rank_in_category FROM ranked_sales AS rs JOIN categories AS cat ON cat.id = rs.category_id WHERE rs.rank_in_category <= 2 ORDER BY cat.name, rs.rank_in_category; -->
+
+**statement:**
+
+Таблицы `categories` (три категории), `products` (восемь товаров),
+`orders` (семь оплаченных заказов) и `order_items` (13 позиций).
+
+Напишите запрос с цепочкой из двух CTE:
+
+1. `product_sales` — для каждого товара: `product_id`,
+   `product_name`, `category_id` и проданные единицы `units_sold`
+   (`SUM(quantity)`; только не отменённые заказы).
+2. `ranked_sales` — то же плюс место `rank_in_category` через
+   `ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY units_sold
+   DESC, product_name)`: при равных продажах выше ставится товар, чьё
+   имя идёт раньше по алфавиту.
+
+Финальный `SELECT` оставляет только `rank_in_category <= 2` (фильтр —
+именно во внешнем запросе: оконная функция недоступна в `WHERE` того
+же уровня) и выводит: `category_name` (из `categories` через JOIN),
+`product_name`, `units_sold`, `rank_in_category`. Сортировка по имени
+категории, затем по месту в категории.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает шесть строк — по два товара в каждой
+категории. Аксессуары: Мышь Silent (20, место 1), Коврик XL (6, место
+2). Аудио: Колонка Mini (12, место 1), Наушники Air (9, место 2 — при
+равенстве с Наушниками Pro имя «Air» идёт раньше по алфавиту).
+Ноутбуки: Ноутбук Air 13 (8, место 1), Ноутбук Game 16 (5, место 2 —
+при равенстве с Ноутбуком Pro 14 выигрывает имя «Game»).
+
+**seed_sql:**
+
+```sql
+CREATE TABLE categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+);
+
+INSERT INTO categories (name) VALUES
+    ('Ноутбуки'),
+    ('Аудио'),
+    ('Аксессуары');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_p_cat FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+INSERT INTO products (category_id, name, price) VALUES
+    (1, 'Ноутбук Pro 14', 98000.00),
+    (1, 'Ноутбук Air 13', 64000.00),
+    (1, 'Ноутбук Game 16', 125000.00),
+    (2, 'Колонка Mini', 5900.00),
+    (2, 'Наушники Air', 12900.00),
+    (2, 'Наушники Pro', 19900.00),
+    (3, 'Мышь Silent', 2300.00),
+    (3, 'Коврик XL', 1500.00);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (1, 'paid', '2026-05-06'),
+    (2, 'paid', '2026-05-21'),
+    (3, 'paid', '2026-06-03'),
+    (1, 'paid', '2026-06-18'),
+    (2, 'paid', '2026-07-01'),
+    (3, 'paid', '2026-07-16'),
+    (1, 'paid', '2026-08-02');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 2, 3, 64000.00),
+    (1, 4, 4, 5900.00),
+    (2, 1, 2, 98000.00),
+    (2, 7, 8, 2300.00),
+    (3, 5, 5, 12900.00),
+    (3, 8, 6, 1500.00),
+    (4, 3, 5, 125000.00),
+    (4, 6, 9, 19900.00),
+    (5, 2, 5, 64000.00),
+    (5, 4, 8, 5900.00),
+    (6, 1, 3, 98000.00),
+    (6, 5, 4, 12900.00),
+    (7, 7, 12, 2300.00);
+```
+
+**expected_rows:**
+
+| category_name | product_name    | units_sold | rank_in_category |
+| ------------- | --------------- | ---------- | ---------------- |
+| Аксессуары    | Мышь Silent     | 20         | 1                |
+| Аксессуары    | Коврик XL       | 6          | 2                |
+| Аудио         | Колонка Mini    | 12         | 1                |
+| Аудио         | Наушники Air    | 9          | 2                |
+| Ноутбуки      | Ноутбук Air 13  | 8          | 1                |
+| Ноутбуки      | Ноутбук Game 16 | 5          | 2                |
+
+**runtime:** mysql
+
+### Задание 3: VIEW: сегментация клиентов по средним тратам
+
+Переиспользуемая сегментация: CTE с тоталами по клиентам, скалярный
+подзапрос к среднему и `CASE`-категоризация — упакованы в VIEW.
+
+<!-- Эталонное решение (для автора/бота-верификатора): CREATE VIEW customer_segments AS WITH customer_totals AS (SELECT c.id AS customer_id, c.name AS customer_name, COALESCE(SUM(oi.quantity * oi.price), 0) AS total_spent FROM customers AS c LEFT JOIN orders AS o ON o.customer_id = c.id AND o.status <> 'cancelled' LEFT JOIN order_items AS oi ON oi.order_id = o.id GROUP BY c.id, c.name) SELECT customer_id, customer_name, total_spent, ROUND(total_spent / (SELECT AVG(total_spent) FROM customer_totals), 2) AS spent_vs_avg, CASE WHEN total_spent > (SELECT AVG(total_spent) FROM customer_totals) * 1.5 THEN 'крупный' WHEN total_spent < (SELECT AVG(total_spent) FROM customer_totals) * 0.5 THEN 'малый' ELSE 'средний' END AS segment FROM customer_totals; SELECT customer_name, total_spent, spent_vs_avg, segment FROM customer_segments ORDER BY total_spent DESC, customer_name; -->
+
+**statement:**
+
+Таблицы `customers` (пять покупателей; у одной — ни одного заказа),
+`products` (четыре товара), `orders` (пять заказов, один —
+`'cancelled'`) и `order_items`.
+
+Создайте VIEW `customer_segments`, которая выводит по каждому
+покупателю:
+
+- `customer_id` и `customer_name`;
+- `total_spent` — суммарные траты по не отменённым заказам (0, если
+  заказов нет: `LEFT JOIN` с фильтром статуса в `ON` + `COALESCE` —
+  клиент без заказов не должен выпадать);
+- `spent_vs_avg` — отношение трат к средним тратам всех покупателей,
+  `ROUND(..., 2)`; среднее — скалярный подзапрос по CTE итогов;
+- `segment` — `'крупный'`, если траты больше полутора средних;
+  `'малый'`, если меньше половины средних; иначе `'средний'` (`CASE`
+  по тому же скалярному подзапросу).
+
+Финальным `SELECT` выведите `customer_name`, `total_spent`,
+`spent_vs_avg`, `segment` из VIEW: сортировка по убыванию трат, при
+равенстве — по имени.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает пять строк — все клиенты, включая
+Оксану Лыкову без заказов (0.00, «малый»). Порядок: Наталья Панова
+53600.00 (2.32 среднего — «крупный»), Инна Белых 31000.00 (1.34 —
+«средний»), Виктор Шаров 25000.00 (1.08 — «средний»), Артём Гуськов
+5800.00 (0.25 — «малый»), Оксана Лыкова 0.00 (0.00 — «малый»).
+Средние траты по всем пятерым — 23080.00; отменённый заказ Натальи не
+учитывается.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Наталья Панова', 'Калининград'),
+    ('Виктор Шаров', 'Рязань'),
+    ('Инна Белых', 'Сочи'),
+    ('Артём Гуськов', 'Ульяновск'),
+    ('Оксана Лыкова', 'Курск');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO products (name, price) VALUES
+    ('Лыжи горные', 42000.00),
+    ('Коньки хоккейные', 12500.00),
+    ('Сноуборд', 31000.00),
+    ('Шлем', 5800.00);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_o_cust FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (1, 'paid', '2026-01-15'),
+    (2, 'paid', '2026-02-03'),
+    (3, 'paid', '2026-02-21'),
+    (1, 'cancelled', '2026-03-08'),
+    (4, 'paid', '2026-03-19');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 42000.00),
+    (1, 4, 2, 5800.00),
+    (2, 2, 2, 12500.00),
+    (3, 3, 1, 31000.00),
+    (4, 3, 1, 31000.00),
+    (5, 4, 1, 5800.00);
+```
+
+**expected_rows:**
+
+| customer_name | total_spent | spent_vs_avg | segment |
+| ------------- | ----------- | ------------ | ------- |
+| Наталья Панова | 53600.00  | 2.32         | крупный |
+| Инна Белых     | 31000.00  | 1.34         | средний |
+| Виктор Шаров   | 25000.00  | 1.08         | средний |
+| Артём Гуськов  | 5800.00   | 0.25         | малый   |
+| Оксана Лыкова  | 0.00      | 0.00         | малый   |
+
+**runtime:** mysql

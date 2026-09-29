@@ -146,4 +146,260 @@ LEFT JOIN categories parent ON child.parent_id = parent.id;
 
 ## Теоретические задания
 
+### Вопрос 1: Как соединить в одном запросе три таблицы — `orders`, `order_items` и `products`?
+
+- ✅ Выписать цепочку: `INNER JOIN order_items ON ...` и ещё `INNER JOIN products ON ...` — каждый `JOIN` со своим условием
+<!-- нового синтаксиса не нужно: JOIN ... ON повторяется на каждую дополнительную таблицу -->
+- ❌ Перечислить все таблицы в `FROM` через запятую, а условия соединения собрать в `WHERE` — error_text: технически возможно, но это устаревший стиль урока 13: он смешивает связь и фильтры, и при потере одного условия тихо даёт декартово произведение. Рекомендуемый способ — явные `JOIN ... ON`.
+- ❌ Использовать оператор `MULTI JOIN` с одним общим условием `ON` в конце — error_text: оператора `MULTI JOIN` в SQL нет. Каждая таблица присоединяется собственной конструкцией `JOIN ... ON`, повторённой нужное число раз.
+- ❌ Никак: один запрос соединяет не более двух таблиц — error_text: соединять можно сколько угодно таблиц — `JOIN ... ON` просто повторяется в цепочке. Реальные отчёты собирают по четыре-пять таблиц сразу, как в этом уроке.
+
+### Вопрос 2: В цепочке `customers c LEFT JOIN orders o ... INNER JOIN order_items oi ON oi.order_id = o.id` — что случится с клиентом без заказов?
+
+- ✅ Он отрежется на шаге `INNER JOIN`: у «пустой» пары `o.id` равен `NULL`, пары с `order_items` не находится, и строка теряется
+<!-- INNER в середине цепочки нейтрализует эффект LEFT, сделанного раньше -->
+- ❌ Он пройдёт всю цепочку и получит `NULL` во всех столбцах `order_items` — error_text: так было бы, будь второй `JOIN` тоже `LEFT`. `INNER` же требует совпадения — а у «пустой» пары `o.id` равен `NULL`, пары не находится, и строка не доходит до результата.
+- ❌ Запрос завершится ошибкой: смешивать `INNER` и `LEFT` в одной цепочке нельзя — error_text: смешивать можно — это штатная возможность SQL, и урок этим пользуется. Проблема не в синтаксисе, а в результате: эффект `LEFT JOIN` нейтрализуется, хотя он был нужен.
+- ❌ Клиент останется в результате одной строкой без позиций — error_text: одна строка с `NULL` на конце — поведение цепочки из `LEFT JOIN`. `INNER JOIN` в середине цепочки не «пропускает» строки без пары дальше — они отбрасываются целиком.
+
+### Вопрос 3: Зачем при self-join (`FROM employees e ... JOIN employees m ...`) двум копиям таблицы дают разные алиасы `e` и `m`?
+
+- ✅ Без разных имён СУБД не различит, где «сотрудник», а где «его руководитель», — и в `ON`, и в `SELECT` возникнет неоднозначность
+<!-- алиас задаёт роль каждой копии одной и той же таблицы -->
+- ❌ Алиасы создают две физические копии таблицы — без них соединить таблицу с собой нельзя — error_text: копии не создаются: обе ссылки указывают на одну и ту же таблицу. Алиасы — имена-роли, позволяющие обратиться к ней дважды в разных ролях, а не механизм копирования.
+- ❌ Так требует внешний ключ: `manager_id` ссылается на алиас, а не на таблицу — error_text: внешний ключ объявляется в `CREATE TABLE` и ссылается на таблицу `employees`, а не на алиасы запроса. Алиасы живут только внутри `SELECT` и с ограничениями не связаны.
+- ❌ Разные алиасы ускоряют соединение таблицы с самой собой — error_text: алиасы не влияют на скорость — они решают задачу различения двух ролей одной таблицы. Без них запрос с двумя одноимёнными копиями просто некорректен.
+
+### Вопрос 4: Почему для отчёта «сотрудник — имя руководителя» в уроке выбран `LEFT JOIN employees m ON e.manager_id = m.id`, а не `INNER JOIN`?
+
+- ✅ У директора `manager_id IS NULL`, и `LEFT JOIN` сохранит его в отчёте — с `NULL` в имени руководителя
+<!-- необязательная связь: строки без пары должны остаться в результате -->
+- ❌ `INNER JOIN` при self-join запрещён: таблица соединяется сама с собой — error_text: self-join с `INNER JOIN` синтаксически возможен — просто строки без руководителя исчезнут из результата. Выбор `LEFT` продиктован требованием отчёта, а не запретом СУБД.
+- ❌ `LEFT JOIN` нужен, чтобы `manager_id` автоматически превращался в имя руководителя — error_text: превращение ссылки в имя — работа условия `ON e.manager_id = m.id` при любом виде `JOIN`. `LEFT` лишь решает судьбу строк, для которых пары не нашлось.
+- ❌ `INNER JOIN` вернул бы директора со строкой `NULL` в имени руководителя — error_text: наоборот: NULL-подстановка — привилегия внешнего соединения урока 14. `INNER` молча исключает директора из результата целиком.
+
+### Вопрос 5: Можно ли одним запросом вывести «сотрудник — его руководитель — руководитель руководителя»?
+
+- ✅ Да: добавить к self-join ещё один — `LEFT JOIN employees mm ON m.manager_id = mm.id`
+<!-- каждый следующий уровень иерархии — ещё один self-join; глубина должна быть известна заранее -->
+- ❌ Нет, на уровне «Начинающий» это невозможно в принципе — error_text: возможно для фиксированного числа уровней: просто ещё один self-join той же таблицы с новой ролью. Произвольная глубина дерева — да, потребует рекурсивных CTE уровня «Средний», но два-три уровня — обычный `JOIN`.
+- ❌ Только через рекурсивные CTE — error_text: рекурсивные CTE нужны для заранее неизвестной глубины дерева. Когда число уровней фиксировано (руководитель и его руководитель), достаточно цепочки обычных self-join.
+- ❌ Да, но только если у всех сотрудников ровно два уровня подчинения — error_text: число уровней в данных может быть любым: у верхних сотрудников у второго self-join не найдётся пары, и `LEFT JOIN` оставит `NULL` — ровно как директор в отчёте с одним уровнем.
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Отчёт по четырём таблицам
+
+Цепочка из трёх `INNER JOIN`: заказ, клиент, позиция и товар в одной широкой строке.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT o.id AS order_id, c.name AS customer_name, p.name AS product_name, oi.quantity, oi.price FROM orders o INNER JOIN customers c ON o.customer_id = c.id INNER JOIN order_items oi ON oi.order_id = o.id INNER JOIN products p ON p.id = oi.product_id ORDER BY o.id, p.id; -->
+
+**statement:**
+
+Таблицы `customers`, `orders`, `order_items` и `products` связаны внешними
+ключами `fk_orders_customer`, `fk_items_order`, `fk_items_product`.
+Соберите отчёт: каждый заказ, имя его клиента и каждая позиция заказа с
+названием товара. Столбцы: `o.id` с алиасом `order_id`, `c.name` с
+алиасом `customer_name`, `p.name` с алиасом `product_name`, `oi.quantity`,
+`oi.price`. Три `INNER JOIN`: `customers` по `o.customer_id = c.id`,
+`order_items` по `oi.order_id = o.id`, `products` по
+`p.id = oi.product_id`. Сортировка по возрастанию `o.id`, затем по
+возрастанию `p.id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает пять строк — по одной на каждую позицию
+каждого заказа. Заказы с несколькими позициями «размножаются»: у заказа 1
+две строки (мышь и USB-хаб), у заказа 2 две (мышь и клавиатура), у
+заказа 3 одна (клавиатура).
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, created_at) VALUES
+    (1, '2026-06-05'),
+    (2, '2026-06-08'),
+    (1, '2026-06-12');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO products (name, price) VALUES
+    ('Мышь беспроводная', 1590.00),
+    ('Клавиатура механическая', 4290.00),
+    ('USB-хаб', 990.00);
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 1590.00),
+    (1, 3, 2, 990.00),
+    (2, 2, 1, 4290.00),
+    (2, 1, 1, 1590.00),
+    (3, 2, 1, 4290.00);
+```
+
+**expected_rows:**
+
+| order_id | customer_name     | product_name           | quantity | price    |
+| -------- | ----------------- | ---------------------- | -------- | -------- |
+| 1        | Елена Кузнецова   | Мышь беспроводная      | 1        | 1590.00  |
+| 1        | Елена Кузнецова   | USB-хаб                | 2        | 990.00   |
+| 2        | Дмитрий Орлов     | Мышь беспроводная      | 1        | 1590.00  |
+| 2        | Дмитрий Орлов     | Клавиатура механическая | 1        | 4290.00 |
+| 3        | Елена Кузнецова   | Клавиатура механическая | 1        | 4290.00 |
+
+**runtime:** mysql
+
+### Задание 2: Дерево категорий
+
+Self-join по иерархии: категория и имя её родителя, корневые категории — с `NULL`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT child.id, child.name AS category_name, parent.name AS parent_name FROM categories child LEFT JOIN categories parent ON child.parent_id = parent.id ORDER BY child.id; -->
+
+**statement:**
+
+Таблица `categories` содержит самоссылающийся столбец `parent_id`
+(внешний ключ `fk_categories_parent` на `categories.id`; у корневых
+категорий он `NULL`). Выведите каждую категорию вместе с названием её
+родительской категории. Столбцы: `child.id`, `child.name` с алиасом
+`category_name`, `parent.name` с алиасом `parent_name`. Self-join с
+алиасами `child` и `parent` и условием `ON child.parent_id = parent.id`;
+соединение — `LEFT JOIN`, чтобы корневые категории не пропали — у них
+`parent_name` будет `NULL`. Сортировка по возрастанию `child.id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает шесть строк. «Электроника» и «Бытовая
+техника» — корневые, их `parent_name` — `NULL`; вложенные категории
+показывают имя родителя: например, у «Клавиатур» — «Компьютеры и
+периферия».
+
+**seed_sql:**
+
+```sql
+CREATE TABLE categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id INT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT fk_categories_parent
+        FOREIGN KEY (parent_id) REFERENCES categories(id)
+);
+
+INSERT INTO categories (parent_id, name) VALUES
+    (NULL, 'Электроника'),
+    (1, 'Компьютеры и периферия'),
+    (1, 'Аудиотехника'),
+    (2, 'Клавиатуры'),
+    (3, 'Наушники'),
+    (NULL, 'Бытовая техника');
+```
+
+**expected_rows:**
+
+| id | category_name             | parent_name             |
+| -- | ------------------------- | ----------------------- |
+| 1  | Электроника               | NULL                    |
+| 2  | Компьютеры и периферия    | Электроника             |
+| 3  | Аудиотехника              | Электроника             |
+| 4  | Клавиатуры                | Компьютеры и периферия  |
+| 5  | Наушники                  | Аудиотехника            |
+| 6  | Бытовая техника           | NULL                    |
+
+**runtime:** mysql
+
+### Задание 3: Сотрудники и руководители
+
+Self-join по `manager_id`: каждый сотрудник, его оклад и имя руководителя; директор — с `NULL`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT e.id, e.name AS employee_name, e.salary AS employee_salary, m.name AS manager_name FROM employees e LEFT JOIN employees m ON e.manager_id = m.id ORDER BY e.id; -->
+
+**statement:**
+
+Таблица `employees` содержит самоссылающийся столбец `manager_id`
+(внешний ключ `fk_employees_manager` на `employees.id`; у директора
+Виктории Лапиной `manager_id IS NULL`). Выведите каждого сотрудника, его
+оклад и имя его непосредственного руководителя. Столбцы: `e.id`,
+`e.name` с алиасом `employee_name`, `e.salary` с алиасом
+`employee_salary`, `m.name` с алиасом `manager_name`. Self-join с
+алиасами `e` и `m` и условием `ON e.manager_id = m.id`; соединение —
+`LEFT JOIN`, чтобы директор остался в отчёте со значением `NULL` в
+`manager_name`. Сортировка по возрастанию `e.id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает шесть строк. Виктория Лапина — директор: её
+`manager_name` — `NULL`. У Алексея Громова и Инны Соловьёвой
+руководитель — Виктория; у Максима Ершова и Сергея Панова — Алексей; у
+Ольги Титовой — Инна.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE employees (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    manager_id INT NULL,
+    salary DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_employees_manager
+        FOREIGN KEY (manager_id) REFERENCES employees(id)
+);
+
+INSERT INTO employees (name, manager_id, salary) VALUES
+    ('Виктория Лапина', NULL, 95000.00),
+    ('Алексей Громов', 1, 72000.00),
+    ('Инна Соловьёва', 1, 68000.00),
+    ('Максим Ершов', 2, 55000.00),
+    ('Ольга Титова', 3, 51000.00),
+    ('Сергей Панов', 2, 47000.00);
+```
+
+**expected_rows:**
+
+| id | employee_name    | employee_salary | manager_name    |
+| -- | ---------------- | --------------- | --------------- |
+| 1  | Виктория Лапина  | 95000.00        | NULL            |
+| 2  | Алексей Громов   | 72000.00        | Виктория Лапина |
+| 3  | Инна Соловьёва   | 68000.00        | Виктория Лапина |
+| 4  | Максим Ершов     | 55000.00        | Алексей Громов  |
+| 5  | Ольга Титова     | 51000.00        | Инна Соловьёва  |
+| 6  | Сергей Панов     | 47000.00        | Алексей Громов  |
+
+**runtime:** mysql

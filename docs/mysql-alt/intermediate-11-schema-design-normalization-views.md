@@ -174,4 +174,327 @@ SELECT * FROM customer_order_summary WHERE total_spent > 50000 ORDER BY total_sp
 
 ## Теоретические задания
 
+### Вопрос 1: У клиента изменился email. В таблице, где email клиента хранится в каждой строке каждого его заказа, адрес обновили не во всех строках — и теперь у одного клиента в одной таблице два разных email. Как называется эта проблема?
+
+- ✅ Аномалия обновления (update anomaly)
+<!-- один факт хранится во многих местах и рассинхронизировался -->
+- ❌ Аномалия вставки (insertion anomaly) — error_text: Аномалия вставки — невозможность сохранить факт о клиенте без «фиктивного» заказа, потому что данные клиента негде хранить вне заказа. Здесь факт о клиенте продублирован по многим строкам и обновлён не везде — это аномалия обновления.
+- ❌ Аномалия удаления (deletion anomaly) — error_text: Аномалия удаления — потеря информации о клиенте вместе с удалением его последнего заказа. В сценарии ничего не удаляли: email продублирован и обновлён не во всех строках — это аномалия обновления.
+- ❌ Нарушение первой нормальной формы — error_text: 1НФ требует атомарных значений в ячейках, а email в каждой ячейке атомарен. Проблема в дублировании одного факта по многим строкам; лечится выносом email в таблицу `customers` — ровно один раз на клиента.
+
+### Вопрос 2: Таблица заказов хранит столбец `product_ids VARCHAR(255)` со значениями вида `'5,12,7'`. Какую нормальную форму нарушает такая структура?
+
+- ✅ Первую (1НФ): значения не атомарны — в одной ячейке список идентификаторов
+<!-- поиск по такому столбцу вырождался бы в ненадёжный LIKE по подстроке -->
+- ❌ Вторую (2НФ): неключевой столбец зависит от части составного ключа — error_text: 2НФ — про частичную зависимость неключевых столбцов от части составного первичного ключа. Здесь речь не о зависимостях от ключа, а о неатомарном значении в ячейке — это нарушение 1НФ.
+- ❌ Третью (3НФ): неключевые столбцы зависят друг от друга — error_text: 3НФ — про транзитивные зависимости между неключевыми столбцами. Список идентификаторов в одной ячейке — проблема атомарности, то есть 1НФ; решение — отдельная таблица-связка `order_items`.
+- ❌ Никакую: строка — законный тип данных, нарушения нет — error_text: Тип допустим, но нормальную форму нарушает не тип, а смысл значения: поиск по товару потребовал бы `LIKE '%,12,%'`, который ненадёжен (перепутает 12 и 120) и медлен. Атомарность значения — требование 1НФ.
+
+### Вопрос 3: Таблица позиций заказа имеет составной первичный ключ `(order_id, product_id)`, и в ней же хранится столбец `product_name`. Какую нормальную форму нарушает `product_name`?
+
+- ✅ Вторую (2НФ): название зависит только от `product_id` — части составного ключа
+<!-- частичная зависимость от части ключа, а не от ключа целиком -->
+- ❌ Первую (1НФ): название товара — неатомарное значение — error_text: Название товара атомарно: одно значение в одной ячейке, не список и не повторяющаяся группа столбцов. Проблема в другом: `product_name` зависит только от части составного ключа — это 2НФ.
+- ❌ Третью (3НФ): транзитивная зависимость между неключевыми столбцами — error_text: 3НФ — про зависимость неключевого столбца от другого неключевого. Здесь `product_name` зависит от ключевого столбца `product_id`, но не от всего ключа целиком — это частичная зависимость, то есть 2НФ.
+- ❌ Никакую: хранить название рядом с позициями удобно для отчётов — error_text: Удобство отчёта не отменяет аномалию обновления: переименование товара потребует правки во множестве строк. Дублирование ради скорости — осознанная денормализация, обоснованная измерениями, а по умолчанию это нарушение 2НФ.
+
+### Вопрос 4: В таблице `orders` есть столбцы `customer_id` и `customer_city`. Почему это нарушение третьей нормальной формы?
+
+- ✅ `customer_city` зависит от неключевого `customer_id`, а не напрямую от первичного ключа заказа (транзитивная зависимость)
+<!-- город принадлежит клиенту, а не заказу -->
+- ❌ Потому что у таблицы нет составного первичного ключа — error_text: Составной ключ — предпосылка разговора о 2НФ, а не требование 3НФ. Таблица `orders` с простым ключом `id` сама по себе корректна; нарушена 3НФ из-за зависимости города от неключевого столбца `customer_id`.
+- ❌ Потому что город — неатомарное значение, составленное из нескольких полей — error_text: Название города атомарно: одно значение в одной ячейке, 1НФ соблюдена. Нарушение в другом: город клиента зависит от неключевого столбца, а не от ключа заказа, — транзитивная зависимость, 3НФ.
+- ❌ Потому что VARCHAR для города — слишком длинный тип — error_text: Длина типа — не критерий нормальных форм. 3НФ нарушена семантикой данных: один и тот же факт (город клиента) хранится многократно и должен обновляться во всех заказах при переезде клиента.
+
+### Вопрос 5: Что произойдёт с результатом `SELECT` из VIEW, если изменить данные в исходных таблицах после создания представления?
+
+- ✅ VIEW выполнит свой запрос заново над актуальными данными — результат всегда отражает текущее состояние исходных таблиц
+<!-- представление — сохранённый запрос, а не копия данных -->
+- ❌ Ничего: VIEW хранит снимок данных на момент создания и не меняется — error_text: Представление — это сохранённый `SELECT`, а не копия данных: при каждом обращении MySQL заново выполняет вложенный запрос. Именно поэтому view не может рассинхронизироваться с исходными таблицами.
+- ❌ Результат изменится только после явного обновления view командой `CREATE OR REPLACE VIEW` — error_text: `CREATE OR REPLACE VIEW` меняет определение (сам запрос) представления, а не его «данные». Данных у view нет вовсе — каждый `SELECT` из view вычисляется заново.
+- ❌ VIEW устареет и станет возвращать ошибку о неактуальности данных — error_text: Никакой ошибки не будет: view не кэширует результат и не следит за «актуальностью». Она просто выполняет свой запрос над текущими данными при каждом обращении.
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Нормализация сырой таблицы заказов
+
+Разбор «сырой» выгрузки на нормализованную схему из четырёх таблиц и
+проверка сборкой данных обратно.
+
+<!-- Эталонное решение (для автора/бота-верификатора): CREATE TABLE customers (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL, city VARCHAR(50) NOT NULL); INSERT INTO customers (name, city) SELECT DISTINCT customer_name, customer_city FROM orders_raw; CREATE TABLE products (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL, price DECIMAL(10,2) NOT NULL); INSERT INTO products (name, price) SELECT DISTINCT product_name, product_price FROM orders_raw; CREATE TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT NOT NULL, created_at DATE NOT NULL); INSERT INTO orders (customer_id, created_at) SELECT DISTINCT c.id, r.order_date FROM orders_raw AS r JOIN customers AS c ON c.name = r.customer_name AND c.city = r.customer_city; CREATE TABLE order_items (order_id INT NOT NULL, product_id INT NOT NULL, quantity INT NOT NULL, PRIMARY KEY (order_id, product_id)); INSERT INTO order_items (order_id, product_id, quantity) SELECT o.id, p.id, r.quantity FROM orders_raw AS r JOIN customers AS c ON c.name = r.customer_name AND c.city = r.customer_city JOIN orders AS o ON o.customer_id = c.id AND o.created_at = r.order_date JOIN products AS p ON p.name = r.product_name AND p.price = r.product_price; SELECT c.name AS customer_name, c.city AS customer_city, p.name AS product_name, p.price AS product_price, oi.quantity FROM order_items AS oi JOIN orders AS o ON o.id = oi.order_id JOIN customers AS c ON c.id = o.customer_id JOIN products AS p ON p.id = oi.product_id ORDER BY c.name, p.name; -->
+
+**statement:**
+
+В базе одна «сырая» таблица `orders_raw(id, customer_name,
+customer_city, order_date, product_name, product_price, quantity)`,
+собранная из выгрузок кассы: каждая строка — одна позиция заказа; один
+и тот же заказ — все строки с одинаковыми покупателем (имя + город) и
+датой; товар определяется парой (название, цена). Комбинации «имя +
+город» покупателя и «название + цена» товара в данных уникальны.
+
+Разберите выгрузку на нормализованную схему из четырёх таблиц —
+`customers(id, name, city)`, `products(id, name, price)`,
+`orders(id, customer_id, created_at)` и `order_items(order_id,
+product_id, quantity)`: создайте таблицы и заполните их из `orders_raw`
+через `INSERT ... SELECT` (урок 7 уровня «Средний»), уникальные
+значения собираются `DISTINCT`-ом и соединениями по имени и дате.
+
+Финальным `SELECT` проверьте себя — соберите данные обратно: колонки
+`customer_name`, `customer_city`, `product_name`, `product_price`,
+`quantity` (соединение всех четырёх нормализованных таблиц), сортировка
+по имени покупателя, затем по названию товара.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает шесть строк — по одной на каждую позицию
+исходной выгрузки, восстановленной уже из нормализованных таблиц.
+Порядок: Надежда Ким (Соковыжималка, 3 шт.), Сергей Гаврилов
+(Блендер погружной 1 шт., Электрочайник 2 шт.), Татьяна Ильина
+(Блендер погружной 2 шт., Мясорубка 1 шт., Соковыжималка 1 шт.). Тот
+же состав строк, что в `orders_raw`, — но каждый факт теперь хранится
+в одном месте.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE orders_raw (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_name VARCHAR(100) NOT NULL,
+    customer_city VARCHAR(50) NOT NULL,
+    order_date DATE NOT NULL,
+    product_name VARCHAR(100) NOT NULL,
+    product_price DECIMAL(10,2) NOT NULL,
+    quantity INT NOT NULL
+);
+
+INSERT INTO orders_raw (customer_name, customer_city, order_date, product_name, product_price, quantity) VALUES
+    ('Татьяна Ильина', 'Воронеж', '2026-07-05', 'Соковыжималка', 6200.00, 1),
+    ('Татьяна Ильина', 'Воронеж', '2026-07-05', 'Блендер погружной', 3100.00, 2),
+    ('Татьяна Ильина', 'Воронеж', '2026-08-12', 'Мясорубка', 5400.00, 1),
+    ('Сергей Гаврилов', 'Ярославль', '2026-07-18', 'Блендер погружной', 3100.00, 1),
+    ('Надежда Ким', 'Уфа', '2026-08-30', 'Соковыжималка', 6200.00, 3),
+    ('Сергей Гаврилов', 'Ярославль', '2026-09-03', 'Электрочайник', 2400.00, 2);
+```
+
+**expected_rows:**
+
+| customer_name   | customer_city | product_name      | product_price | quantity |
+| --------------- | ------------- | ----------------- | ------------- | -------- |
+| Надежда Ким     | Уфа           | Соковыжималка     | 6200.00       | 3        |
+| Сергей Гаврилов | Ярославль     | Блендер погружной | 3100.00       | 1        |
+| Сергей Гаврилов | Ярославль     | Электрочайник     | 2400.00       | 2        |
+| Татьяна Ильина  | Воронеж       | Блендер погружной | 3100.00       | 2        |
+| Татьяна Ильина  | Воронеж       | Мясорубка         | 5400.00       | 1        |
+| Татьяна Ильина  | Воронеж       | Соковыжималка     | 6200.00       | 1        |
+
+**runtime:** mysql
+
+### Задание 2: VIEW: продажи по категориям
+
+Представление-отчёт с агрегатами по категориям; категория без продаж
+не выпадает и получает нули.
+
+<!-- Эталонное решение (для автора/бота-верификатора): CREATE VIEW category_sales AS SELECT cat.name AS category_name, COUNT(p.id) AS products_count, COALESCE(SUM(s.units_sold), 0) AS units_sold, COALESCE(SUM(s.revenue), 0) AS revenue FROM categories AS cat LEFT JOIN products AS p ON p.category_id = cat.id LEFT JOIN (SELECT oi.product_id, SUM(oi.quantity) AS units_sold, SUM(oi.quantity * oi.price) AS revenue FROM order_items AS oi JOIN orders AS o ON o.id = oi.order_id AND o.status <> 'cancelled' GROUP BY oi.product_id) AS s ON s.product_id = p.id GROUP BY cat.id, cat.name; SELECT category_name, products_count, units_sold, revenue FROM category_sales ORDER BY revenue DESC, category_name; -->
+
+**statement:**
+
+Таблицы `categories` (четыре категории), `products` (шесть товаров),
+`orders` (четыре заказа, один — `'cancelled'`) и `order_items` (пять
+позиций). Отменённые заказы в отчёт не попадают.
+
+Создайте VIEW `category_sales`, которая выводит по каждой категории:
+
+- `category_name` — имя категории;
+- `products_count` — число товаров категории (все, включая
+  непроданные);
+- `units_sold` — проданные единицы (только не отменённые заказы);
+- `revenue` — выручка `SUM(quantity * price)` (только не отменённые
+  заказы).
+
+Категория без продаж не должна выпадать из отчёта, а её агрегаты
+должны быть нулями, а не NULL — приём: производная таблица с продажами
+по товарам (урок 1 уровня «Средний») + `LEFT JOIN` + `COALESCE`
+(урок 11 уровня «Основы»).
+
+Финальным `SELECT` выведите `category_name`, `products_count`,
+`units_sold`, `revenue` из VIEW: сортировка по убыванию `revenue`, при
+равенстве — по имени категории.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает четыре строки — по категории: Планшеты
+(2 товара, 1 единица, 38900.00), Часы (1 товар, 3 единицы, 37200.00),
+Смартфоны (2 товара, 1 единица, 32900.00 — продажа смартфона Beta из
+отменённого заказа не посчитана), Аксессуары (1 товар, 0 единиц,
+0.00 — категория без продаж осталась в отчёте с нулями).
+
+**seed_sql:**
+
+```sql
+CREATE TABLE categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+);
+
+INSERT INTO categories (name) VALUES
+    ('Смартфоны'),
+    ('Планшеты'),
+    ('Часы'),
+    ('Аксессуары');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_p_cat FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+INSERT INTO products (category_id, name, price) VALUES
+    (1, 'Смартфон Alfa 128ГБ', 32900.00),
+    (1, 'Смартфон Beta 256ГБ', 45900.00),
+    (2, 'Планшет Delta 11', 38900.00),
+    (2, 'Планшет Gamma 8', 21900.00),
+    (3, 'Часы Sport 2', 12400.00),
+    (4, 'Чехол-книжка универсальный', 1490.00);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (1, 'paid', '2026-06-11'),
+    (1, 'paid', '2026-07-02'),
+    (2, 'cancelled', '2026-07-19'),
+    (3, 'paid', '2026-08-25');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_o FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_p FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 32900.00),
+    (2, 5, 2, 12400.00),
+    (3, 2, 1, 45900.00),
+    (4, 3, 1, 38900.00),
+    (4, 5, 1, 12400.00);
+```
+
+**expected_rows:**
+
+| category_name | products_count | units_sold | revenue  |
+| ------------- | -------------- | ---------- | -------- |
+| Планшеты      | 2              | 1          | 38900.00 |
+| Часы          | 1              | 3          | 37200.00 |
+| Смартфоны     | 2              | 1          | 32900.00 |
+| Аксессуары    | 1              | 0          | 0.00     |
+
+**runtime:** mysql
+
+### Задание 3: VIEW всегда актуальна
+
+Создание представления, затем `UPDATE` исходных таблиц и чтение из
+view — результат отражает изменение: view — не снимок.
+
+<!-- Эталонное решение (для автора/бота-верификатора): CREATE VIEW order_totals AS SELECT o.id AS order_id, c.name AS customer_name, SUM(oi.quantity * oi.price) AS total_amount FROM orders AS o JOIN customers AS c ON c.id = o.customer_id JOIN order_items AS oi ON oi.order_id = o.id GROUP BY o.id, c.name; UPDATE order_items SET quantity = 4 WHERE order_id = 2 AND product_id = 3; SELECT order_id, customer_name, total_amount FROM order_totals ORDER BY order_id; -->
+
+**statement:**
+
+Таблицы `customers` (два покупателя), `products` (три товара),
+`orders` (два оплаченных заказа) и `order_items` (у заказа 1 — принтер
+и МФУ по 1 шт., у заказа 2 — 2 шт. сканера).
+
+1. Создайте VIEW `order_totals` с колонками `order_id`,
+   `customer_name` и `total_amount` — сумма позиций заказа
+   (`SUM(quantity * price)`, `GROUP BY` по заказу, соединение
+   `orders` + `customers` + `order_items`).
+2. Измените данные под view: увеличьте количество сканеров в заказе 2
+   с 2 до 4 (`UPDATE order_items ... WHERE order_id = 2 AND product_id
+   = 3`).
+3. Финальным `SELECT` выведите `order_id`, `customer_name`,
+   `total_amount` из VIEW, сортировка по `order_id`. Сумма заказа 2
+   обязана отразить изменение: представление вычисляется заново при
+   каждом обращении, а не хранит копию данных.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает две строки: заказ 1 (Елена Тарасова,
+27300.00 = 8700 + 18600) и заказ 2 (Максим Ветров, 39600.00 =
+4 × 9900). Сумма заказа 2 отражает `UPDATE`, выполненный уже после
+создания view: до изменения она была бы 19800.00 — представление не
+снимок, а сохранённый запрос.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Тарасова', 'Самара'),
+    ('Максим Ветров', 'Пермь');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO products (name, price) VALUES
+    ('Принтер струйный', 8700.00),
+    ('МФУ лазерное', 18600.00),
+    ('Сканер планшетный', 9900.00);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_o_cust FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (1, 'paid', '2026-09-05'),
+    (2, 'paid', '2026-09-15');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 8700.00),
+    (1, 2, 1, 18600.00),
+    (2, 3, 2, 9900.00);
+```
+
+**expected_rows:**
+
+| order_id | customer_name | total_amount |
+| -------- | ------------- | ------------ |
+| 1        | Елена Тарасова | 27300.00     |
+| 2        | Максим Ветров  | 39600.00     |
+
+**runtime:** mysql

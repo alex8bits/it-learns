@@ -167,4 +167,260 @@ FOREIGN KEY (customer_id) REFERENCES customers(id)
 
 ## Теоретические задания
 
+### Вопрос 1: Что произойдёт при выполнении `INSERT INTO orders (customer_id, status) VALUES (9999, 'new')`, если клиента с `id = 9999` в `customers` нет, а на `orders.customer_id` объявлен `FOREIGN KEY ... REFERENCES customers(id)`?
+
+- ✅ СУБД отклонит вставку ошибкой «Cannot add or update a child row: a foreign key constraint fails»
+<!-- значение внешнего ключа обязано существовать в родительской таблице — нарушение ловится на INSERT -->
+- ❌ Строка вставится, а `customer_id` автоматически заменится на `NULL` — error_text: СУБД не «чинит» некорректные данные молча: нарушение ограничения — это ошибка, а не автоподстановка. К тому же в уроке столбец объявлен `NOT NULL`, и `NULL` туда вставить нельзя в принципе.
+- ❌ Строка вставится, но любой `SELECT` из `orders` после этого вернёт ошибку — error_text: некорректная строка не попадает в таблицу вообще — нарушение поймано ещё на `INSERT`. `SELECT` читает только корректные данные и внешние ключи при чтении не проверяет.
+- ❌ СУБД автоматически создаст клиента с `id = 9999` в `customers` и вставит заказ — error_text: `FOREIGN KEY` лишь сверяет значение со связанной таблицей; создавать строки в родителе он не умеет — такого поведения в MySQL нет.
+
+### Вопрос 2: Внешний ключ объявлен без явного `ON DELETE`. Что произойдёт при `DELETE FROM customers WHERE id = 42`, если на клиента 42 всё ещё ссылаются строки `orders`?
+
+- ✅ Удаление будет запрещено — MySQL вернёт ошибку «Cannot delete or update a parent row»
+<!-- поведение по умолчанию — RESTRICT: родителя с живыми ссылками удалить нельзя -->
+- ❌ Заказы клиента удалятся автоматически вместе с ним — error_text: это поведение `ON DELETE CASCADE`, и оно не работает «по умолчанию»: каскад нужно объявить явно. Без явного указания действует запрет удаления родителя со ссылками.
+- ❌ Заказы останутся, а их `customer_id` станет `NULL` — error_text: это `ON DELETE SET NULL`, который к тому же требует, чтобы столбец допускал `NULL`. По умолчанию ни дочерние строки, ни их ссылки не меняются — операция целиком отклоняется.
+- ❌ Клиент удалится, а заказы останутся со ссылкой на несуществующий `id` — error_text: ровно от таких «висящих» ссылок `FOREIGN KEY` и защищает: ссылка без родителя — нарушение целостности, и именно оно блокируется по умолчанию.
+
+### Вопрос 3: `order_items` объявлен с `FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE`. Что произойдёт с позициями при `DELETE FROM orders WHERE id = 15`?
+
+- ✅ Все строки `order_items` с `order_id = 15` удалятся автоматически вместе с заказом
+<!-- CASCADE: потомки, не имеющие смысла без родителя, СУБД удаляет сама -->
+- ❌ Удаление будет запрещено, пока у заказа 15 есть позиции — error_text: запрет — это поведение `RESTRICT`, действующее по умолчанию. Здесь `CASCADE` объявлен явно, поэтому СУБД не блокирует операцию, а сама удаляет потомков вместе с родителем.
+- ❌ Позиции останутся, а их `order_id` станет `NULL` — error_text: обрыв ссылки с сохранением строки — это `ON DELETE SET NULL`. `CASCADE` же именно удаляет дочерние строки: позиция заказа не имеет смысла без заказа.
+- ❌ Позиции останутся с прежним `order_id = 15` — error_text: потомок со ссылкой на удалённого родителя — «висящая» ссылка, нарушение целостности. Ни одно из действий `ON DELETE` не оставляет таких строк, а `CASCADE` удаляет их физически.
+
+### Вопрос 4: Для `products.preferred_supplier_id` объявлено `FOREIGN KEY ... REFERENCES suppliers(id) ON DELETE SET NULL`. Что произойдёт с товарами при удалении поставщика из `suppliers`?
+
+- ✅ Товары останутся в каталоге, а их `preferred_supplier_id` станет `NULL`
+<!-- SET NULL: связь обрывается, но дочерняя строка живёт -->
+- ❌ Товары, ссылающиеся на этого поставщика, будут удалены вместе с ним — error_text: удаление потомков — это `CASCADE`. `SET NULL` выбран ровно для противоположной цели: товар ценен сам по себе и должен пережить исчезновение поставщика.
+- ❌ Удаление поставщика будет запрещено, пока на него ссылается хотя бы один товар — error_text: запрет — поведение `RESTRICT` по умолчанию. `SET NULL` как раз разрешает удалить родителя, аккуратно обрывая ссылки — иначе в этом объявлении не было бы смысла.
+- ❌ `preferred_supplier_id` получит значение `0` как признак «поставщика нет» — error_text: `SET NULL` устанавливает именно `NULL`, а не ноль и не пустую строку. Путать «значения нет» с нулём — та же ошибка, что и в `NULL`-семантике урока 11 уровня «Основы».
+
+### Вопрос 5: Почему в уроке для связи `order_items.product_id → products.id` выбран `ON DELETE RESTRICT`, а не `CASCADE`?
+
+- ✅ Позиции заказов — история продаж: удаление товара не должно тихо стирать данные о том, что было продано
+<!-- каскад уместен там, где потомок бессмыслен без родителя; исторические данные — не тот случай -->
+- ❌ `CASCADE` для внешних ключей в MySQL вообще недоступен — error_text: доступен и штатно работает: `ON DELETE CASCADE` автоматически удаляет потомков. Вопрос не в возможностях СУБД, а в смысле данных — историю продаж стирать нельзя.
+- ❌ `RESTRICT` ускоряет выполнение `DELETE` по сравнению с `CASCADE` — error_text: выбор действия `ON DELETE` — про целостность и смысл данных, а не про скорость. Производительность `DELETE` — тема продвинутого уровня, и она не причина этого решения.
+- ❌ В одной таблице может быть объявлен только один внешний ключ с `CASCADE` — error_text: ограничений на число каскадных внешних ключей нет: у `order_items` в уроке их два — `CASCADE` на заказ и `RESTRICT` на товар — одновременно. Каждая связь настраивается отдельно, по смыслу данных.
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Новый клиент и его заказ
+
+Запись в связанные таблицы: вставка родителя, затем потомка с корректной ссылкой, и пост-SELECT.
+
+<!-- Эталонное решение (для автора/бота-верификатора): INSERT INTO customers (name, city) VALUES ('Павел Жуков', 'Самара'); INSERT INTO orders (customer_id, total, created_at) VALUES (4, 2750.00, '2026-04-18'); SELECT id, customer_id, total, created_at FROM orders ORDER BY id; -->
+
+**statement:**
+
+Таблицы `customers` и `orders` связаны внешним ключом `fk_orders_customer`
+по `customer_id`. Добавьте в `customers` клиента «Павел Жуков» из города
+«Самара», затем добавьте в `orders` его заказ на сумму 2750.00 от
+2026-04-18 — сошлитесь на `id` нового клиента (после вставки он равен 4).
+Финальный `SELECT` должен вывести все заказы таблицы `orders` — столбцы
+`id`, `customer_id`, `total`, `created_at`, отсортированные по возрастанию
+`id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает три строки: два исходных заказа и новый заказ
+с `id = 3` клиента 4 (Павел Жуков) на 2750.00. Вставка прошла, потому что
+`customer_id = 4` существует в `customers` — внешний ключ соблюдён.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    total DECIMAL(10,2) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, total, created_at) VALUES
+    (2, 3200.00, '2026-02-10'),
+    (1, 1450.00, '2026-03-05');
+```
+
+**expected_rows:**
+
+| id | customer_id | total   | created_at |
+| -- | ----------- | ------- | ---------- |
+| 1  | 2           | 3200.00 | 2026-02-10 |
+| 2  | 1           | 1450.00 | 2026-03-05 |
+| 3  | 4           | 2750.00 | 2026-04-18 |
+
+**runtime:** mysql
+
+### Задание 2: Каскадное удаление заказа
+
+Проверка каскада: пишущее задание — `DELETE` родителя, затем пост-SELECT потомков.
+
+<!-- Эталонное решение (для автора/бота-верификатора): DELETE FROM orders WHERE id = 2; SELECT id, order_id, product_id, quantity FROM order_items ORDER BY id; -->
+
+**statement:**
+
+Таблицы `customers`, `orders`, `products` и `order_items`; позиции связаны
+с заказами внешним ключом `fk_items_order` с `ON DELETE CASCADE`, а с
+товарами — `fk_items_product` с `ON DELETE RESTRICT`. Удалите из `orders`
+заказ с `id = 2` — его позиции должны исчезнуть автоматически, без ручного
+`DELETE` из `order_items`. Затем выведите все оставшиеся позиции: столбцы
+`id`, `order_id`, `product_id`, `quantity`, отсортированные по возрастанию
+`id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает четыре строки — позиции заказов 1 и 3. Позиция
+с `id = 3` (единственная позиция заказа 2) удалена автоматически каскадом
+`fk_items_order`: после удаления заказа она потеряла бы смысл.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO products (name, price) VALUES
+    ('Наушники беспроводные', 4990.00),
+    ('Чехол для телефона', 890.00),
+    ('Мышь беспроводная', 1590.00);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, created_at) VALUES
+    (1, '2026-05-02'),
+    (2, '2026-05-04'),
+    (1, '2026-05-09');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
+);
+
+INSERT INTO order_items (order_id, product_id, quantity) VALUES
+    (1, 1, 1),
+    (1, 2, 2),
+    (2, 3, 1),
+    (3, 2, 1),
+    (3, 3, 2);
+```
+
+**expected_rows:**
+
+| id | order_id | product_id | quantity |
+| -- | -------- | ---------- | -------- |
+| 1  | 1        | 1          | 1        |
+| 2  | 1        | 2          | 2        |
+| 4  | 3        | 2          | 1        |
+| 5  | 3        | 3          | 2        |
+
+**runtime:** mysql
+
+### Задание 3: SET NULL при удалении поставщика
+
+Обрыв ссылки без удаления потомка: `DELETE` родителя, затем пост-SELECT потомков с `NULL`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): DELETE FROM suppliers WHERE id = 1; SELECT id, name, price, supplier_id FROM products ORDER BY id; -->
+
+**statement:**
+
+Таблица `products` ссылается на `suppliers` внешним ключом
+`fk_products_supplier` с `ON DELETE SET NULL`; столбец `supplier_id`
+допускает `NULL`, и у товара 4 он уже `NULL`. Удалите из `suppliers`
+поставщика с `id = 1` («ООО «ТехноМир»»), затем выведите все товары:
+столбцы `id`, `name`, `price`, `supplier_id`, отсортированные по
+возрастанию `id`. У товаров, потерявших поставщика, `supplier_id` должен
+стать `NULL` (выводится литералом `NULL`).
+
+**expected_result_text:**
+
+Финальный SELECT возвращает четыре строки. Товары 1 и 3, ссылавшиеся на
+удалённого поставщика, остались в каталоге с `supplier_id = NULL`; у
+товара 2 поставщик 2 не тронут; у товара 4 `NULL` был и до удаления.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE suppliers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL
+);
+
+INSERT INTO suppliers (name) VALUES
+    ('ООО «ТехноМир»'),
+    ('ИП Соколов А.В.'),
+    ('ООО «Гаджеты Плюс»');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    supplier_id INT NULL,
+    CONSTRAINT fk_products_supplier
+        FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
+);
+
+INSERT INTO products (name, price, supplier_id) VALUES
+    ('Планшет 10.1', 18990.00, 1),
+    ('Электронная книга', 12490.00, 2),
+    ('Умные часы', 7990.00, 1),
+    ('Фитнес-браслет', 3490.00, NULL);
+```
+
+**expected_rows:**
+
+| id | name                | price     | supplier_id |
+| -- | ------------------- | --------- | ----------- |
+| 1  | Планшет 10.1        | 18990.00  | NULL        |
+| 2  | Электронная книга   | 12490.00  | 2           |
+| 3  | Умные часы          | 7990.00   | NULL        |
+| 4  | Фитнес-браслет      | 3490.00   | NULL        |
+
+**runtime:** mysql

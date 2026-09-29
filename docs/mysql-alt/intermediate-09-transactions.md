@@ -171,4 +171,327 @@ COMMIT;
 
 ## Теоретические задания
 
+### Вопрос 1: Что произойдёт с изменениями, сделанными после `START TRANSACTION`, если выполнить `ROLLBACK`?
+
+- ✅ Все изменения транзакции будут отменены, и данные вернутся к состоянию на момент до `START TRANSACTION`
+<!-- ROLLBACK отбрасывает всю группу команд целиком, возвращая базу к исходному состоянию -->
+- ❌ Откатится только последняя выполненная команда, изменения до неё сохранятся — error_text: `ROLLBACK` отменяет не последнюю команду, а всю транзакцию целиком — от `START TRANSACTION` до `ROLLBACK`. Откатить лишь часть шагов можно только до заранее созданной точки сохранения: `ROLLBACK TO SAVEPOINT имя`.
+- ❌ MySQL откажется выполнять `ROLLBACK`, если часть команд уже выполнена успешно — error_text: Успешность предыдущих команд не мешает откату: атомарность как раз и означает, что группа команд применяется целиком или не применяется никак. `ROLLBACK` легитимен на любом шаге до `COMMIT`.
+- ❌ ROLLBACK отменит изменения и закроет соединение с базой данных — error_text: `ROLLBACK` не закрывает соединение и не завершает сессию: это обычная команда, отменяющая изменения текущей транзакции. Сразу после неё можно начинать новые транзакции.
+
+### Вопрос 2: Какое свойство ACID гарантирует, что результат транзакции сохранится даже после сбоя питания сервера сразу вслед за `COMMIT`?
+
+- ✅ Durability (долговечность)
+<!-- СУБД физически записывает зафиксированные изменения так, чтобы их можно было восстановить -->
+- ❌ Atomicity (атомарность) — error_text: Атомарность — это «всё или ничего» внутри одной транзакции: либо применяются все её команды, либо ни одна. К физическому выживанию зафиксированного результата после сбоя относится долговечность — durability.
+- ❌ Consistency (согласованность) — error_text: Согласованность требует, чтобы транзакция переводила базу из одного состояния с выполненными ограничениями целостности в другое такое же. Сохранность результата после физического сбоя сервера — это durability, а не consistency.
+- ❌ Isolation (изолированность) — error_text: Изолированность описывает, что видят параллельные транзакции до завершения текущей — тема следующего урока уровня «Средний». Сохранность зафиксированного результата после сбоя — durability.
+
+### Вопрос 3: Внутри транзакции `UPDATE products SET stock = stock - 3 WHERE id = 5 AND stock >= 2` затронул 0 строк: товара на складе не хватило. Как поведёт себя MySQL?
+
+- ✅ UPDATE, затронувший 0 строк, — не ошибка: транзакция продолжится, и решение об откате должна принять программа
+<!-- сервер прерывает транзакцию автоматически только при настоящей ошибке ограничения -->
+- ❌ MySQL автоматически выполнит ROLLBACK всей транзакции — error_text: Сервер прерывает транзакцию автоматически только при настоящей ошибке — нарушении `UNIQUE`, `FOREIGN KEY`, `CHECK` и т. п. Обновление, затронувшее 0 строк, — штатный результат: MySQL не знает, что для этого бизнес-сценария он означает провал.
+- ❌ MySQL прервёт транзакцию ошибкой «недостаточно товара на складе» — error_text: Такой ошибки SQL не существует: 0 затронутых строк — не ошибка. Настоящую ошибку породило бы, например, нарушение ограничения `CHECK (stock >= 0)`, если бы оно было объявлено в схеме (урок 6 уровня «Основы»).
+- ❌ MySQL зафиксирует выполненную часть транзакции и пропустит неудачный шаг — error_text: Никаких «частичных автокоммитов» не существует: сервер не принимает решений за бизнес-логику. Либо программа продолжает транзакцию, либо сама явно вызывает `ROLLBACK`.
+
+### Вопрос 4: Что произойдёт после `ROLLBACK TO SAVEPOINT before_items`, если точка `before_items` уже создана внутри текущей транзакции?
+
+- ✅ Изменения, сделанные после точки, отменятся; изменения до неё и сама транзакция останутся активными
+<!-- частичный откат внутри незавершённой транзакции; итоговый COMMIT фиксирует ранние изменения -->
+- ❌ Отменится вся транзакция с момента `START TRANSACTION` — error_text: Так работает обычный `ROLLBACK` без указания точки. `ROLLBACK TO SAVEPOINT` отменяет только то, что было сделано после точки сохранения, а более ранние изменения той же транзакции сохраняются.
+- ❌ Изменения после точки отменятся, а то, что было до неё, автоматически зафиксируется через COMMIT — error_text: После `ROLLBACK TO SAVEPOINT` транзакция продолжает существовать: ничего не фиксируется до явного `COMMIT`. `SAVEPOINT` — точка внутри незавершённой транзакции, а не альтернатива `COMMIT`.
+- ❌ Команда лишь пометит откат на будущее: изменения отменятся только при следующем `COMMIT` — error_text: Всё наоборот: `ROLLBACK TO SAVEPOINT` отменяет изменения после точки немедленно. А вот фиксация более ранних изменений происходит позже — при явном `COMMIT`, завершающем транзакцию.
+
+### Вопрос 5: Как MySQL обрабатывает команды изменения данных по умолчанию, до явного `START TRANSACTION`?
+
+- ✅ Каждая команда сразу применяется как собственная мгновенно завершающаяся транзакция (режим автокоммита)
+<!-- именно поэтому до этого урока каждая команда применялась немедленно -->
+- ❌ Все команды накапливаются и применяются одной пачкой в конце сессии — error_text: Ничего не накапливается: в режиме автокоммита каждая команда `INSERT`/`UPDATE`/`DELETE` обрамляется в отдельную транзакцию, которая фиксируется сразу же.
+- ❌ Команды изменения данных не выполняются вовсе, пока не начата транзакция — error_text: Выполняются и сразу фиксируются: автокоммит — режим по умолчанию, а не запрет. Явный `START TRANSACTION` нужен ровно затем, чтобы объединить несколько команд в одну группу с общей судьбой.
+- ❌ Автокоммит действует только на SELECT, а INSERT и UPDATE всегда требуют явной транзакции — error_text: `SELECT` вообще ничего не фиксирует — автокоммит к нему не относится. Автокоммит — про команды изменения данных: они применяются немедленно, по одной.
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Всё или ничего: откат заказа целиком
+
+Сценарий «заказ → позиция → склад» с явным `ROLLBACK` вместо сбойного
+платёжного шага и финальной проверкой пост-состояния.
+
+<!-- Эталонное решение (для автора/бота-верификатора): START TRANSACTION; INSERT INTO orders (customer_id, status, created_at) VALUES (2, 'new', '2026-09-20'); INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (LAST_INSERT_ID(), 1, 2, 8990.00); UPDATE products SET stock = stock - 2 WHERE id = 1; ROLLBACK; SELECT p.id AS product_id, p.stock AS stock_left, (SELECT COUNT(*) FROM orders) AS orders_total, (SELECT COUNT(*) FROM order_items) AS items_total FROM products AS p WHERE p.id = 1 ORDER BY p.id; -->
+
+**statement:**
+
+Таблицы `customers` (три покупателя), `products` (три товара; у товара
+`id = 1` «Наушники беспроводные» цена 8990.00 и остаток 10), `orders`
+(один доставленный заказ с `id = 1` от 2026-08-14) и `order_items`
+(одна позиция этого заказа).
+
+1. Начните транзакцию и оформите заказ покупателя с `id = 2`: создайте
+   заказ (`'new'`, `'2026-09-20'`), добавьте позицию — 2 шт. товара
+   `id = 1` по цене 8990.00 (id только что созданного заказа удобно
+   взять функцией `LAST_INSERT_ID()`), спишите остаток
+   (`stock = stock - 2` для `id = 1`).
+2. Смоделируйте сбой следующего шага: платёж зарегистрировать не
+   удалось, поэтому вся транзакция отменяется — выполните `ROLLBACK`
+   (намеренную «ошибку исполнения» устроить нельзя: она прервала бы весь
+   скрипт, поэтому откат моделируется явно).
+3. После отката финальным `SELECT` выведите пост-состояние: для товара
+   `id = 1` — остаток `stock_left`, а также общее число строк в `orders`
+   (`orders_total`) и в `order_items` (`items_total`). Строка одна,
+   но добавьте сортировку по `product_id`.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает одну строку: товар 1, остаток 10
+(`stock_left`), 1 заказ и 1 позиция — ровно как до начала транзакции.
+`ROLLBACK` отменил и создание заказа, и его позицию, и списание со
+склада: частично сохранённого заказа не осталось.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Ольга Кузнецова', 'Москва'),
+    ('Дмитрий Лебедев', 'Казань'),
+    ('Светлана Морозова', 'Самара');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    stock INT NOT NULL
+);
+
+INSERT INTO products (name, price, stock) VALUES
+    ('Наушники беспроводные', 8990.00, 10),
+    ('Клавиатура механическая', 5490.00, 8),
+    ('Флеш-накопитель 128ГБ', 1790.00, 40);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_o_cust FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (1, 'delivered', '2026-08-14');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 3, 2, 1790.00);
+```
+
+**expected_rows:**
+
+| product_id | stock_left | orders_total | items_total |
+| ---------- | ---------- | ------------ | ----------- |
+| 1          | 10         | 1            | 1           |
+
+**runtime:** mysql
+
+### Задание 2: SAVEPOINT: перезапись позиции внутри транзакции
+
+Частичный откат к точке сохранения: ошибочная позиция отменяется,
+созданный заказ — нет; итог фиксируется `COMMIT`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): START TRANSACTION; INSERT INTO orders (customer_id, status, created_at) VALUES (2, 'new', '2026-09-22'); SAVEPOINT before_items; INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (1, 2, 1, 99000.00); ROLLBACK TO SAVEPOINT before_items; INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (1, 2, 1, 7900.00); UPDATE products SET stock = stock - 1 WHERE id = 2; COMMIT; SELECT o.id AS order_id, c.name AS customer_name, p.name AS product_name, oi.quantity, oi.price AS item_price, p.stock AS stock_left FROM orders AS o JOIN customers AS c ON c.id = o.customer_id JOIN order_items AS oi ON oi.order_id = o.id JOIN products AS p ON p.id = oi.product_id ORDER BY o.id, p.name; -->
+
+**statement:**
+
+Таблицы `customers` (два покупателя), `products` (три товара; у товара
+`id = 2` «Док-станция USB-C» цена 7900.00 и остаток 12), `orders` и
+`order_items` — обе пустые.
+
+1. Начните транзакцию и создайте заказ покупателя `id = 2` (`'new'`,
+   `'2026-09-22'`). Таблица `orders` пуста, поэтому заказ получит
+   `id = 1`.
+2. Поставьте точку сохранения `before_items` и вставьте позицию
+   заказа: 1 шт. товара `id = 2`, но по ошибочной цене 99000.00.
+3. Обнаружив ошибку, откатитесь к точке
+   (`ROLLBACK TO SAVEPOINT before_items`) — созданный заказ должен
+   сохраниться, а ошибочная позиция исчезнуть.
+4. Вставьте исправленную позицию — тот же товар по правильной цене
+   7900.00, спишите 1 шт. со склада (`stock = stock - 1` для `id = 2`)
+   и завершите транзакцию `COMMIT`.
+5. Финальным `SELECT` выведите пост-состояние: `order_id`, имя
+   покупателя (`customer_name`), название товара (`product_name`),
+   `quantity`, цену позиции (`item_price`) и остаток после списания
+   (`stock_left`) — соединив `orders`, `customers`, `order_items` и
+   `products`. Сортировка по `order_id`, затем по названию товара.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает одну строку: заказ 1, Павел Белов,
+«Док-станция USB-C», 1 шт., 7900.00 (исправленная цена) и остаток 11
+(12 минус списанная единица). Позиции с ошибочной ценой 99000.00 в
+результате нет — она откатана к `SAVEPOINT`, а заказ уцелел и
+зафиксирован `COMMIT`-ом.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Марина Зайцева', 'Нижний Новгород'),
+    ('Павел Белов', 'Екатеринбург');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    stock INT NOT NULL
+);
+
+INSERT INTO products (name, price, stock) VALUES
+    ('Монитор 27 дюймов', 24900.00, 6),
+    ('Док-станция USB-C', 7900.00, 12),
+    ('Веб-камера Full HD', 4300.00, 9);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_o_cust FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+```
+
+**expected_rows:**
+
+| order_id | customer_name | product_name      | quantity | item_price | stock_left |
+| -------- | ------------- | ----------------- | -------- | ---------- | ---------- |
+| 1        | Павел Белов   | Док-станция USB-C | 1        | 7900.00    | 11         |
+
+**runtime:** mysql
+
+### Задание 3: COMMIT и ROLLBACK рядом: пост-состояние
+
+Две транзакции подряд — успешная и отменённая; финальный `SELECT`
+показывает, что в базе осталась только зафиксированная.
+
+<!-- Эталонное решение (для автора/бота-верификатора): START TRANSACTION; INSERT INTO orders (customer_id, status, created_at) VALUES (1, 'new', '2026-09-23'); INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (LAST_INSERT_ID(), 1, 2, 8900.00); UPDATE products SET stock = stock - 2 WHERE id = 1; COMMIT; START TRANSACTION; INSERT INTO orders (customer_id, status, created_at) VALUES (2, 'new', '2026-09-24'); INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (LAST_INSERT_ID(), 2, 1, 6300.00); UPDATE products SET stock = stock - 1 WHERE id = 2; ROLLBACK; SELECT c.name AS customer_name, o.id AS order_id, o.status, o.created_at, SUM(oi.quantity * oi.price) AS order_total FROM orders AS o JOIN customers AS c ON c.id = o.customer_id LEFT JOIN order_items AS oi ON oi.order_id = o.id GROUP BY o.id, c.name, o.status, o.created_at ORDER BY o.id; -->
+
+**statement:**
+
+Таблицы `customers` (три покупателя), `products` (три товара), `orders`
+(один доставленный заказ `id = 1` от 2026-07-30) и `order_items` (одна
+позиция: 1 шт. товара `id = 3`).
+
+1. Первая транзакция — успешная: заказ покупателя `id = 1` (`'new'`,
+   `'2026-09-23'`) с позицией «2 шт. товара `id = 1` по цене 8900.00»
+   (id заказа — через `LAST_INSERT_ID()`), списание 2 шт. со склада
+   товара `id = 1`; завершите `COMMIT`.
+2. Вторая транзакция — неудачная: заказ покупателя `id = 2` (`'new'`,
+   `'2026-09-24'`) с позицией «1 шт. товара `id = 2` по цене 6300.00»,
+   списание 1 шт. со склада; смоделируйте сбой — `ROLLBACK`.
+3. Финальным `SELECT` выведите пост-состояние: все заказы с именем
+   покупателя (`customer_name`), `order_id`, `status`, `created_at` и
+   суммой позиций `order_total` (`SUM(quantity * price)` через `LEFT
+   JOIN` с `order_items` и `GROUP BY` по заказу). Сортировка по
+   `order_id`.
+
+**expected_result_text:**
+
+Финальный `SELECT` возвращает две строки: существовавший заказ 1
+(Алина Дементьева, delivered, 2026-07-30, сумма 5600.00) и
+зафиксированный заказ 2 (Ксения Романова, new, 2026-09-23, сумма
+17800.00 = 2 × 8900.00). Заказ Игоря Фомина из откатившейся второй
+транзакции в базе отсутствует — как и списание по нему.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Ксения Романова', 'Санкт-Петербург'),
+    ('Игорь Фомин', 'Новосибирск'),
+    ('Алина Дементьева', 'Краснодар');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    stock INT NOT NULL
+);
+
+INSERT INTO products (name, price, stock) VALUES
+    ('SSD-накопитель 1ТБ', 8900.00, 15),
+    ('Маршрутизатор Wi-Fi 6', 6300.00, 10),
+    ('Внешний жёсткий диск 2ТБ', 5600.00, 7);
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_o_cust FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, created_at) VALUES
+    (3, 'delivered', '2026-07-30');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_oi_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_oi_product FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 3, 1, 5600.00);
+```
+
+**expected_rows:**
+
+| customer_name    | order_id | status    | created_at | order_total |
+| ---------------- | -------- | --------- | ---------- | ----------- |
+| Алина Дементьева | 1        | delivered | 2026-07-30 | 5600.00     |
+| Ксения Романова  | 2        | new       | 2026-09-23 | 17800.00    |
+
+**runtime:** mysql

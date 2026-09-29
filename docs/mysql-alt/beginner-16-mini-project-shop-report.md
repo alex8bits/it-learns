@@ -167,4 +167,426 @@ ORDER BY total_spent DESC;
 
 ## Теоретические задания
 
+### Вопрос 1: Почему в сводном отчёте по клиентам урока заказы считаются как `COUNT(DISTINCT o.id)`, а не `COUNT(*)`?
+
+- ✅ После соединения с `order_items` строка заказа «размножается» на строки позиций, и `COUNT(*)` посчитал бы позиции, а не заказы
+<!-- DISTINCT внутри COUNT устраняет повторы, созданные размножением JOIN-ом -->
+- ❌ `COUNT(*)` запрещён в запросах с `LEFT JOIN` — error_text: не запрещён — он работает, но считает строки результата, а не уникальные заказы. Проблема не в запрете, а в смысле: позиций у одного заказа несколько.
+- ❌ `COUNT(DISTINCT)` работает быстрее `COUNT(*)` — error_text: скорость ни при чём: `DISTINCT` здесь — про корректность подсчёта уникальных заказов после «размножения» строк соединением (урок 15 уровня «Начинающий»), а не оптимизация.
+- ❌ `COUNT(*)` не учитывает `NULL` и занизил бы число заказов — error_text: наоборот: `COUNT(*)` считает все строки, включая «пустые» пары с `NULL`; игнорирует `NULL` только `COUNT(столбец)` — урок 8 уровня «Начинающий». Обе формы посчитали бы позиции, а не заказы.
+
+### Вопрос 2: Клиент без единого заказа попал в отчёт через `LEFT JOIN`. Что вернут для него `COUNT(DISTINCT o.id)`, `SUM(...)` и `MAX(o.created_at)`?
+
+- ✅ `0`, `NULL` и `NULL` соответственно
+<!-- COUNT на пустом наборе возвращает 0; SUM и MAX — NULL -->
+- ❌ `NULL`, `NULL` и `NULL` — error_text: `COUNT` — единственный агрегат, возвращающий `0`, а не `NULL`, когда в группе нет ни одной строки (урок 8 уровня «Начинающий»). `SUM` и `MAX` действительно дают `NULL`.
+- ❌ `0`, `0` и `NULL` — error_text: ноль для `SUM` — подмена: агрегат без единого значения возвращает `NULL` — «значения нет», а не ноль. Превратить `NULL` в `0` — работа `COALESCE`, если отчёту это нужно.
+- ❌ Запрос завершится ошибкой агрегации по пустой группе — error_text: пустая группа — штатный случай: каждый агрегат возвращает своё значение для пустого набора (`COUNT` — 0, `SUM`/`MAX` — `NULL`), никаких ошибок не возникает.
+
+### Вопрос 3: Условие «больше одного заказа» записано как `HAVING COUNT(DISTINCT o.id) > 1`, а не как `WHERE ...`. Почему?
+
+- ✅ Это свойство всей группы (число заказов клиента), которое появляется только после группировки — а `WHERE` фильтрует строки до неё
+<!-- HAVING — сито готовых групп: урок 10 уровня «Начинающий» -->
+- ❌ Потому что `WHERE` нельзя использовать вместе с `LEFT JOIN` — error_text: можно: `WHERE` спокойно фильтрует строки соединённого набора. Но число заказов существует только после `GROUP BY` — поэтому условие и уезжает в `HAVING`.
+- ❌ `HAVING` выполняется раньше `WHERE` и экономит ресурсы на больших таблицах — error_text: порядок обратный: `WHERE` срабатывает до группировки и срезает строки раньше (урок 6 уровня «Начинающий»). Выбор между ними — про смысл условия, а не про скорость.
+- ❌ `HAVING` нужен только потому, что `WHERE` не видит алиас `orders_count` из `SELECT` — error_text: недоступность алиаса в `WHERE` — правда (урок 6 уровня «Начинающий»), но причина глубже: условие построено на агрегате, который вычисляется только после группировки. Даже написав его без алиаса, в `WHERE` поставить нельзя — оно описывает свойство готовой группы (урок 10 уровня «Начинающий»).
+
+### Вопрос 4: Клиент без заказов имеет `SUM(...) = NULL`. В какую ветку `CASE WHEN SUM(...) >= 15000 THEN 'VIP' WHEN SUM(...) >= 10000 THEN 'постоянный' ELSE 'обычный' END` он попадёт?
+
+- ✅ В ветку `ELSE`: сравнения `NULL >= 15000` и `NULL >= 10000` дают «неизвестно», и `CASE` переходит к следующей ветке
+<!-- сравнение с NULL — «неизвестно»; ELSE — ветка по умолчанию для таких случаев -->
+- ❌ Ни в какую: `CASE` вернёт `NULL` и остановится — error_text: `CASE` возвращает `NULL`, только когда ни одна ветка не сработала, а `ELSE` отсутствует (урок 7 уровня «Начинающий»). Здесь `ELSE` есть, а «неизвестно» в `WHEN` означает «проверяй дальше», а не «верни NULL».
+- ❌ В ветку `'VIP'`: `NULL` в MySQL считается больше любого числа — error_text: `NULL` не больше и не меньше числа: любое сравнение с ним даёт «неизвестно» — урок 11 уровня «Основы». Поэтому `NULL` проваливается через все `WHEN` до `ELSE`.
+- ❌ Запрос завершится ошибкой сравнения `NULL` с числом — error_text: сравнение с `NULL` — не ошибка, а «неизвестно» в трёхзначной логике. `CASE` штатно перебирает ветки дальше и заканчивает на `ELSE` — без ошибок.
+
+### Вопрос 5: Зачем в финальном отчёте `MAX(o.created_at)` обёрнут в `DATE_FORMAT(..., '%d.%m.%Y')`?
+
+- ✅ Функция дат превращает `2026-03-28` в читаемое для человека `28.03.2026`
+<!-- DATE_FORMAT — форматирование значения даты: урок 5 уровня «Начинающий» -->
+- ❌ Без `DATE_FORMAT` `MAX` вернёт дату в виде числа — error_text: `MAX` по столбцу `DATETIME` возвращает нормальное значение даты. Обёртка — про формат отображения для человека, а не спасение от «числа».
+- ❌ Без `DATE_FORMAT` запрос с `GROUP BY` упадёт — error_text: агрегат по дате и группировка никак не требуют форматирования; `DATE_FORMAT` — чисто косметический штрих финального `SELECT`, работать запрос будет и без него.
+- ❌ `DATE_FORMAT` переводит дату в часовой пояс пользователя — error_text: функция лишь переупаковывает компоненты даты в строку по шаблону и о часовых поясах не знает ничего — это тема администрирования, а не уровня «Начинающий».
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Сводка по клиентам
+
+Сквозной отчёт: `LEFT JOIN` + `GROUP BY` + `COUNT(DISTINCT ...)` + `CASE` + `DATE_FORMAT`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT c.id, c.name, COUNT(DISTINCT o.id) AS orders_count, SUM(oi.quantity * oi.price) AS total_spent, CASE WHEN SUM(oi.quantity * oi.price) >= 15000 THEN 'VIP' WHEN SUM(oi.quantity * oi.price) >= 10000 THEN 'постоянный' ELSE 'обычный' END AS customer_tier, DATE_FORMAT(MAX(o.created_at), '%d.%m.%Y') AS last_order_date FROM customers c LEFT JOIN orders o ON o.customer_id = c.id LEFT JOIN order_items oi ON oi.order_id = o.id GROUP BY c.id, c.name ORDER BY total_spent DESC, c.id; -->
+
+**statement:**
+
+Мини-проект использует таблицы `categories`, `products`, `customers`,
+`orders`, `order_items` (все связи — через внешние ключи). Постройте
+сводку по клиентам: столбцы `c.id`, `c.name`, `orders_count` (число
+заказов — `COUNT(DISTINCT o.id)`: соединение с `order_items` размножает
+строку заказа на строки позиций), `total_spent` (через
+`SUM(oi.quantity * oi.price)`), `customer_tier` (`CASE`: сумма ≥ 15000 —
+`'VIP'`, ≥ 10000 — `'постоянный'`, иначе — `'обычный'`), `last_order_date`
+(через `DATE_FORMAT(MAX(o.created_at), '%d.%m.%Y')`). Оба соединения —
+`LEFT JOIN`: клиент без заказов (Роман Белов) тоже попадает в отчёт — у
+него `orders_count = 0`, `total_spent` и `last_order_date` — `NULL`
+(выводится литералом `NULL`), а `CASE` с `NULL`-суммой уходит в ветку
+`ELSE`. Группировка по `c.id`, `c.name`; сортировка по убыванию
+`total_spent`, при равенстве — по возрастанию `c.id` (строка с `NULL`
+в `total_spent` оказывается последней).
+
+**expected_result_text:**
+
+Финальный SELECT возвращает четыре строки. Елена Кузнецова — `VIP`: 3
+заказа на 15480.00, последний 28.03.2026. Дмитрий Орлов — «постоянный»:
+2 заказа на 10170.00. Светлана Морозова — «обычный»: 2 заказа на 6260.00.
+Роман Белов — без заказов: 0, `NULL`, «обычный», `NULL` — и стоит
+последним.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id INT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT fk_categories_parent
+        FOREIGN KEY (parent_id) REFERENCES categories(id)
+);
+
+INSERT INTO categories (parent_id, name) VALUES
+    (NULL, 'Периферия'),
+    (NULL, 'Аксессуары');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_products_category
+        FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+INSERT INTO products (category_id, name, price) VALUES
+    (1, 'Мышь беспроводная', 1590.00),
+    (1, 'Клавиатура механическая', 4290.00),
+    (2, 'USB-хаб', 990.00),
+    (2, 'Коврик для мыши', 490.00),
+    (1, 'Веб-камера', 2790.00);
+
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула'),
+    ('Роман Белов', 'Ижевск');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, created_at) VALUES
+    (1, '2026-01-12'),
+    (2, '2026-01-25'),
+    (1, '2026-02-08'),
+    (3, '2026-02-19'),
+    (2, '2026-03-03'),
+    (3, '2026-03-15'),
+    (1, '2026-03-28');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 1590.00),
+    (1, 3, 2, 990.00),
+    (2, 2, 1, 4290.00),
+    (3, 1, 2, 1590.00),
+    (3, 4, 3, 490.00),
+    (4, 2, 1, 4290.00),
+    (4, 3, 1, 990.00),
+    (5, 1, 1, 1590.00),
+    (5, 2, 1, 4290.00),
+    (6, 4, 2, 490.00),
+    (7, 2, 1, 4290.00),
+    (7, 3, 3, 990.00);
+```
+
+**expected_rows:**
+
+| id | name              | orders_count | total_spent | customer_tier | last_order_date |
+| -- | ----------------- | ------------ | ----------- | ------------- | --------------- |
+| 1  | Елена Кузнецова   | 3            | 15480.00    | VIP           | 28.03.2026      |
+| 2  | Дмитрий Орлов     | 2            | 10170.00    | постоянный    | 03.03.2026      |
+| 3  | Светлана Морозова | 2            | 6260.00     | обычный       | 15.03.2026      |
+| 4  | Роман Белов       | 0            | NULL        | обычный       | NULL            |
+
+**runtime:** mysql
+
+### Задание 2: Выручка по месяцам
+
+Отчёт по периодам: `INNER JOIN` + месячный ключ `DATE_FORMAT` + `GROUP BY` + `HAVING`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT DATE_FORMAT(o.created_at, '%Y-%m') AS month_key, COUNT(DISTINCT o.id) AS orders_count, SUM(oi.quantity * oi.price) AS revenue FROM orders o INNER JOIN order_items oi ON oi.order_id = o.id GROUP BY DATE_FORMAT(o.created_at, '%Y-%m') HAVING SUM(oi.quantity * oi.price) >= 9000 ORDER BY month_key; -->
+
+**statement:**
+
+Мини-проект использует те же таблицы `categories`, `products`,
+`customers`, `orders`, `order_items`. Постройте отчёт о выручке по
+месяцам: столбцы `month_key` (через `DATE_FORMAT(o.created_at, '%Y-%m')`),
+`orders_count` (число заказов месяца — `COUNT(DISTINCT o.id)`), `revenue`
+(через `SUM(oi.quantity * oi.price)`). Соединение `orders` с `order_items`
+— `INNER JOIN` по `oi.order_id = o.id`; группировка по месячному ключу;
+оставьте только месяцы с выручкой не менее 9000.00 — условие в `HAVING`
+по `SUM(oi.quantity * oi.price)`. Сортировка по возрастанию `month_key`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает две строки. Январь (выручка 7860.00 — заказы
+на 3570.00 и 4290.00) отсеян `HAVING`; в отчёте февраль с двумя заказами
+на 9930.00 и март с тремя заказами на 14120.00.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id INT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT fk_categories_parent
+        FOREIGN KEY (parent_id) REFERENCES categories(id)
+);
+
+INSERT INTO categories (parent_id, name) VALUES
+    (NULL, 'Периферия'),
+    (NULL, 'Аксессуары');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_products_category
+        FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+INSERT INTO products (category_id, name, price) VALUES
+    (1, 'Мышь беспроводная', 1590.00),
+    (1, 'Клавиатура механическая', 4290.00),
+    (2, 'USB-хаб', 990.00),
+    (2, 'Коврик для мыши', 490.00),
+    (1, 'Веб-камера', 2790.00);
+
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула'),
+    ('Роман Белов', 'Ижевск');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, created_at) VALUES
+    (1, '2026-01-12'),
+    (2, '2026-01-25'),
+    (1, '2026-02-08'),
+    (3, '2026-02-19'),
+    (2, '2026-03-03'),
+    (3, '2026-03-15'),
+    (1, '2026-03-28');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 1590.00),
+    (1, 3, 2, 990.00),
+    (2, 2, 1, 4290.00),
+    (3, 1, 2, 1590.00),
+    (3, 4, 3, 490.00),
+    (4, 2, 1, 4290.00),
+    (4, 3, 1, 990.00),
+    (5, 1, 1, 1590.00),
+    (5, 2, 1, 4290.00),
+    (6, 4, 2, 490.00),
+    (7, 2, 1, 4290.00),
+    (7, 3, 3, 990.00);
+```
+
+**expected_rows:**
+
+| month_key | orders_count | revenue  |
+| --------- | ------------ | -------- |
+| 2026-02   | 2            | 9930.00  |
+| 2026-03   | 3            | 14120.00 |
+
+**runtime:** mysql
+
+### Задание 3: Товары — продажи и сегменты
+
+Отчёт по товарам: смешение `INNER`/`LEFT JOIN` в цепочке + `CASE` на агрегате + даты + товар без продаж через `LEFT JOIN`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT p.id, p.name AS product_name, cat.name AS category_name, SUM(oi.quantity) AS units_sold, CASE WHEN SUM(oi.quantity) >= 6 THEN 'лидер' WHEN SUM(oi.quantity) >= 3 THEN 'стабильный' ELSE 'без продаж' END AS sales_segment, DATE_FORMAT(MAX(o.created_at), '%d.%m.%Y') AS last_sale_date FROM products p INNER JOIN categories cat ON p.category_id = cat.id LEFT JOIN order_items oi ON oi.product_id = p.id LEFT JOIN orders o ON o.id = oi.order_id GROUP BY p.id, p.name, cat.name ORDER BY p.id; -->
+
+**statement:**
+
+Мини-проект использует те же таблицы `categories`, `products`,
+`customers`, `orders`, `order_items`. Постройте отчёт по каждому товару:
+столбцы `p.id`, `p.name` с алиасом `product_name`, `cat.name` с алиасом
+`category_name`, `units_sold` (продано штук — `SUM(oi.quantity)`),
+`sales_segment` (`CASE`: продано ≥ 6 — `'лидер'`, ≥ 3 — `'стабильный'`,
+иначе — `'без продаж'`), `last_sale_date` (через
+`DATE_FORMAT(MAX(o.created_at), '%d.%m.%Y')`). В отчёт входят все товары,
+включая ни разу не проданные: соединения — `products INNER JOIN
+categories cat ON p.category_id = cat.id`, затем `LEFT JOIN order_items
+oi ON oi.product_id = p.id` и `LEFT JOIN orders o ON o.id = oi.order_id`.
+У товара без продаж `units_sold` и `last_sale_date` — `NULL` (выводится
+литералом `NULL`), а сегмент — `'без продаж'`: `CASE` с `NULL` уходит в
+ветку `ELSE`. Группировка по `p.id`, `p.name`, `cat.name`; сортировка по
+возрастанию `p.id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает пять строк. USB-хаб — «лидер» (6 штук,
+последняя продажа 28.03.2026); мышь, клавиатура и коврик — «стабильные»
+(4, 4 и 5 штук); веб-камера не продана ни разу — `NULL`, «без продаж»,
+`NULL`, но из отчёта не пропала благодаря `LEFT JOIN`.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id INT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT fk_categories_parent
+        FOREIGN KEY (parent_id) REFERENCES categories(id)
+);
+
+INSERT INTO categories (parent_id, name) VALUES
+    (NULL, 'Периферия'),
+    (NULL, 'Аксессуары');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_products_category
+        FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+INSERT INTO products (category_id, name, price) VALUES
+    (1, 'Мышь беспроводная', 1590.00),
+    (1, 'Клавиатура механическая', 4290.00),
+    (2, 'USB-хаб', 990.00),
+    (2, 'Коврик для мыши', 490.00),
+    (1, 'Веб-камера', 2790.00);
+
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула'),
+    ('Роман Белов', 'Ижевск');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, created_at) VALUES
+    (1, '2026-01-12'),
+    (2, '2026-01-25'),
+    (1, '2026-02-08'),
+    (3, '2026-02-19'),
+    (2, '2026-03-03'),
+    (3, '2026-03-15'),
+    (1, '2026-03-28');
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
+    (1, 1, 1, 1590.00),
+    (1, 3, 2, 990.00),
+    (2, 2, 1, 4290.00),
+    (3, 1, 2, 1590.00),
+    (3, 4, 3, 490.00),
+    (4, 2, 1, 4290.00),
+    (4, 3, 1, 990.00),
+    (5, 1, 1, 1590.00),
+    (5, 2, 1, 4290.00),
+    (6, 4, 2, 490.00),
+    (7, 2, 1, 4290.00),
+    (7, 3, 3, 990.00);
+```
+
+**expected_rows:**
+
+| id | product_name           | category_name | units_sold | sales_segment | last_sale_date |
+| -- | ---------------------- | ------------- | ---------- | ------------- | -------------- |
+| 1  | Мышь беспроводная      | Периферия     | 4          | стабильный    | 03.03.2026     |
+| 2  | Клавиатура механическая | Периферия    | 4          | стабильный    | 28.03.2026     |
+| 3  | USB-хаб                | Аксессуары    | 6          | лидер         | 28.03.2026     |
+| 4  | Коврик для мыши        | Аксессуары    | 5          | стабильный    | 15.03.2026     |
+| 5  | Веб-камера             | Периферия     | NULL       | без продаж    | NULL           |
+
+**runtime:** mysql

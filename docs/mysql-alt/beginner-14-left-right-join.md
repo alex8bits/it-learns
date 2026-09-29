@@ -127,4 +127,270 @@ WHERE o.status = 'delivered';
 
 ## Теоретические задания
 
+### Вопрос 1: Чем `LEFT JOIN` в `FROM customers c LEFT JOIN orders o ON o.customer_id = c.id` отличается от `INNER JOIN`?
+
+- ✅ Все строки `customers` попадают в результат; если заказов у клиента нет — столбцы `orders` заполняются `NULL`
+<!-- внешнее соединение: левая таблица сохраняется целиком, правая — по ON -->
+- ❌ Все строки `orders` попадают в результат, даже без совпадения в `customers` — error_text: это описание `RIGHT JOIN` — сохраняется таблица, стоящая после `JOIN`. В `LEFT JOIN` сохраняется левая таблица из `FROM` — здесь `customers`.
+- ❌ Ничем: оба оставляют только совпавшие пары строк — error_text: «только совпавшие» — формула `INNER JOIN` урока 13. Весь смысл `LEFT JOIN` — сохранить и непарные строки левой таблицы, дополнив их `NULL`.
+- ❌ Строки `customers` без заказов удаляются из таблицы физически — error_text: `JOIN` — операция чтения: он собирает временный результат и не меняет данные в таблицах. И «удалять» тут нечего — `LEFT JOIN` как раз сохраняет такие строки в результате.
+
+### Вопрос 2: Какой запрос найдёт клиентов, у которых нет ни одного заказа?
+
+- ✅ `FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id IS NULL`
+<!-- анти-джойн: NULL в правой части после LEFT JOIN означает «пары не нашлось» -->
+- ❌ `FROM customers c INNER JOIN orders o ON o.customer_id = c.id` — error_text: `INNER` оставляет только тех, у кого заказы есть, — мы получим противоположность искомого. Клиенты без заказов в результат не попадают в принципе.
+- ❌ `FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id = NULL` — error_text: сравнение `= NULL` всегда даёт «неизвестно», а не «истина» — это ключевая тема урока 11 уровня «Основы». Для проверки отсутствия значения существует только `IS NULL`.
+- ❌ `FROM customers c LEFT JOIN orders o ON o.customer_id = c.id` без `WHERE` — error_text: без фильтра вернутся все клиенты — и с заказами, и без. Нужен второй шаг анти-джойна: отобрать строки, где правая часть — `NULL`, то есть `WHERE o.id IS NULL`.
+
+### Вопрос 3: В `FROM customers c LEFT JOIN orders o ON o.customer_id = c.id` добавили `WHERE o.status = 'delivered'`. Что произойдёт с клиентом, у которого нет ни одного заказа?
+
+- ✅ Он исчезнет из результата: `NULL = 'delivered'` даёт «неизвестно», и `WHERE` отбросит эту строку
+<!-- фильтр по правой таблице в WHERE превращает LEFT JOIN в INNER по эффекту -->
+- ❌ Он останется в результате со значением `NULL` в `o.status` — error_text: так было бы, будь условие в `ON`: там оно решает, какие заказы присоединяются, и строка без пары сохраняется. Но `WHERE` выполняется после соединения и отбрасывает строки с «неизвестно» — эффект `LEFT JOIN` уничтожен.
+- ❌ Запрос завершится ошибкой сравнения `NULL` со строкой — error_text: сравнение с `NULL` — не ошибка, а «неизвестно» в трёхзначной логике урока 1 уровня «Начинающий». Строка просто не пройдёт фильтр, без всяких ошибок.
+- ❌ Ничего не изменится: `WHERE` выполняется до соединения, и `LEFT JOIN` потом вернёт клиента — error_text: порядок обратный: сначала `FROM` вместе с соединением собирает строки, затем `WHERE` фильтрует готовые строки — урок 6 уровня «Начинающий». Поэтому «пустая» пара с `NULL` в `o.status` отбрасывается.
+
+### Вопрос 4: Чем отличается условие `o.status = 'delivered'` в `ON` от того же условия в `WHERE` при `LEFT JOIN`?
+
+- ✅ В `ON` оно решает, какие заказы участвуют в соединении, — клиент без подходящих заказов остаётся с `NULL`; в `WHERE` оно отбрасывает готовые строки, включая «пустые» пары
+<!-- ON ограничивает участников соединения, WHERE — итоговые строки результата -->
+- ❌ Разницы нет: `ON` и `WHERE` в MySQL взаимозаменяемы — error_text: на `INNER JOIN` результат часто совпадает, но на `LEFT JOIN` это два разных запроса: условие по правой таблице в `WHERE` непреднамеренно превращает внешнее соединение во внутреннее — главная тема этого урока.
+- ❌ Условие в `ON` выполняется быстрее, потому что до `WHERE` дело не доходит — error_text: разница не в скорости, а в результате: `WHERE` выполняется в любом случае — уже над собранными строками. Вопрос урока — какие строки доживут до финального результата.
+- ❌ В `ON` условие можно писать только по столбцам правой таблицы, а в `WHERE` — только по левой — error_text: ограничений нет: и в `ON`, и в `WHERE` допустимы условия по любым таблицам. Выбор места — про смысл: кто участвует в соединении или что остаётся в результате.
+
+### Вопрос 5: Что гарантирует `FROM orders o RIGHT JOIN customers c ON o.customer_id = c.id`?
+
+- ✅ В результат попадут все строки `customers`, даже те, у которых нет заказов
+<!-- правое внешнее соединение: сохраняется таблица после JOIN -->
+- ❌ В результат попадут все строки `orders`, даже без совпадения в `customers` — error_text: сохраняется правая таблица — та, что после `JOIN`, то есть `customers`. Строки `orders` без пары здесь не сохраняются: это была бы формула `LEFT JOIN`.
+- ❌ В результат попадут строки обеих таблиц, включая непарные с обеих сторон — error_text: это `FULL OUTER JOIN`, которого в MySQL нет. `RIGHT JOIN` сохраняет только правую таблицу; непарные строки левой теряются.
+- ❌ Запрос эквивалентен `INNER JOIN`, потому что `orders` записана в `FROM` первой — error_text: порядок в `FROM` не превращает внешнее соединение во внутреннее. `RIGHT JOIN` читается по положению таблицы после `JOIN` — сохраняется `customers` с NULL-подстановкой слева.
+
 ## Практические задания
+
+Каждое задание исполняется в собственной изолированной среде: сид-скрипт
+задания создаёт таблицы с нуля, и наборы данных у заданий свои. Состав
+может отличаться и от демо-таблиц материала, и от соседних заданий —
+опирайтесь на таблицы, описанные в формулировке самого задания.
+
+### Задание 1: Все клиенты и их заказы
+
+Внешнее соединение: все строки левой таблицы, у клиента без заказов — одна строка с `NULL`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT c.id, c.name, o.id AS order_id, o.total AS order_total FROM customers c LEFT JOIN orders o ON o.customer_id = c.id ORDER BY c.id, o.id; -->
+
+**statement:**
+
+Таблицы `customers` (четыре клиента; у Романа Белова заказов нет) и
+`orders` (пять заказов со статусами) связаны внешним ключом
+`fk_orders_customer`. Напишите запрос, который вернёт каждого клиента и
+все его заказы. Столбцы: `c.id`, `c.name`, `o.id` с алиасом `order_id`,
+`o.total` с алиасом `order_total`. Соединение — `LEFT JOIN` по
+`o.customer_id = c.id`; сортировка по возрастанию `c.id`, затем по
+возрастанию `order_id`. Клиент без заказов должен остаться одной строкой,
+а `order_id` и `order_total` у него — `NULL`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает шесть строк: пять пар «клиент — заказ» и одну
+строку Романа Белова с `NULL` в `order_id` и `order_total`. `INNER JOIN`
+урока 13 потерял бы его; `LEFT JOIN` сохранил.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула'),
+    ('Роман Белов', 'Ижевск');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'new',
+    total DECIMAL(10,2) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, total, created_at) VALUES
+    (1, 'delivered', 5300.00, '2026-03-11'),
+    (2, 'shipped', 1980.00, '2026-03-14'),
+    (1, 'new', 760.00, '2026-03-20'),
+    (3, 'shipped', 4250.00, '2026-04-02'),
+    (2, 'delivered', 6110.00, '2026-04-15');
+```
+
+**expected_rows:**
+
+| id | name              | order_id | order_total |
+| -- | ----------------- | -------- | ----------- |
+| 1  | Елена Кузнецова   | 1        | 5300.00     |
+| 1  | Елена Кузнецова   | 3        | 760.00      |
+| 2  | Дмитрий Орлов     | 2        | 1980.00     |
+| 2  | Дмитрий Орлов     | 5        | 6110.00     |
+| 3  | Светлана Морозова | 4        | 4250.00     |
+| 4  | Роман Белов       | NULL     | NULL        |
+
+**runtime:** mysql
+
+### Задание 2: Доставленные заказы — условие в ON
+
+WHERE vs ON на LEFT JOIN: условие по правой таблице внутри `ON` сохраняет «пустые» пары.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT c.id, c.name, COUNT(o.id) AS delivered_orders FROM customers c LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'delivered' GROUP BY c.id, c.name ORDER BY c.id; -->
+
+**statement:**
+
+Те же таблицы `customers` и `orders`. Для каждого клиента посчитайте число
+его заказов в статусе `'delivered'`. Условие `o.status = 'delivered'`
+поместите внутрь `ON` — через `AND` после условия соединения, — а не в
+`WHERE`. Столбцы: `c.id`, `c.name`, `delivered_orders` (через
+`COUNT(o.id)`). Соединение — `LEFT JOIN`, группировка по `c.id` и
+`c.name`, сортировка по возрастанию `c.id`. Все четыре клиента должны
+остаться в результате — даже с нулём.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает четыре строки — всех клиентов. У Елены и
+Дмитрия по одному доставленному заказу; у Светланы оба заказа не в статусе
+'delivered' — 0; у Романа заказов нет — тоже 0, и «пустая» пара
+сохранилась благодаря условию в `ON`.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+INSERT INTO customers (name, city) VALUES
+    ('Елена Кузнецова', 'Воронеж'),
+    ('Дмитрий Орлов', 'Пермь'),
+    ('Светлана Морозова', 'Тула'),
+    ('Роман Белов', 'Ижевск');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'new',
+    total DECIMAL(10,2) NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, status, total, created_at) VALUES
+    (1, 'delivered', 5300.00, '2026-03-11'),
+    (2, 'shipped', 1980.00, '2026-03-14'),
+    (1, 'new', 760.00, '2026-03-20'),
+    (3, 'shipped', 4250.00, '2026-04-02'),
+    (2, 'delivered', 6110.00, '2026-04-15');
+```
+
+**expected_rows:**
+
+| id | name              | delivered_orders |
+| -- | ----------------- | ---------------- |
+| 1  | Елена Кузнецова   | 1                |
+| 2  | Дмитрий Орлов     | 1                |
+| 3  | Светлана Морозова | 0                |
+| 4  | Роман Белов       | 0                |
+
+**runtime:** mysql
+
+### Задание 3: Товары без заказов
+
+Анти-джойн: строки левой таблицы, которым не нашлось пары в правой, — через `LEFT JOIN ... IS NULL`.
+
+<!-- Эталонное решение (для автора/бота-верификатора): SELECT p.id, p.name FROM products p LEFT JOIN order_items oi ON oi.product_id = p.id WHERE oi.id IS NULL ORDER BY p.id; -->
+
+**statement:**
+
+Таблицы `customers`, `orders`, `products` (пять товаров) и `order_items`
+(позиции двух заказов). Найдите товары, которые ни разу не встречаются в
+`order_items`, — анти-джойн: `LEFT JOIN order_items oi ON
+oi.product_id = p.id` и фильтр `WHERE oi.id IS NULL`. Столбцы: `p.id`,
+`p.name`; сортировка по возрастанию `p.id`.
+
+**expected_result_text:**
+
+Финальный SELECT возвращает две строки — товары, которых нет ни в одной
+позиции заказов: клавиатура и коврик. Для них `LEFT JOIN` подставил
+«строку из одних NULL», и фильтр `oi.id IS NULL` оставил только такие
+строки.
+
+**seed_sql:**
+
+```sql
+CREATE TABLE customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+);
+
+INSERT INTO customers (name) VALUES
+    ('Елена Кузнецова'),
+    ('Дмитрий Орлов');
+
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    created_at DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+INSERT INTO orders (customer_id, created_at) VALUES
+    (1, '2026-06-01'),
+    (2, '2026-06-03');
+
+CREATE TABLE products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO products (name, price) VALUES
+    ('Мышь беспроводная', 1590.00),
+    ('Клавиатура механическая', 4290.00),
+    ('USB-хаб', 990.00),
+    ('Веб-камера', 2790.00),
+    ('Коврик для мыши', 490.00);
+
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    CONSTRAINT fk_items_order
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_items_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO order_items (order_id, product_id, quantity) VALUES
+    (1, 1, 2),
+    (1, 3, 1),
+    (2, 1, 1),
+    (2, 4, 1);
+```
+
+**expected_rows:**
+
+| id | name                   |
+| -- | ---------------------- |
+| 2  | Клавиатура механическая |
+| 5  | Коврик для мыши         |
+
+**runtime:** mysql
