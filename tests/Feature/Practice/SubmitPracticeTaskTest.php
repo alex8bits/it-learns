@@ -49,6 +49,13 @@ class SubmitPracticeTaskTest extends TestCase
         $response->assertRedirect(route('lessons.show', $lesson->slug));
         $response->assertSessionHas('practice_feedback');
 
+        // Key element of the flash on a passed attempt: the reference
+        // rows travel in the diff so the learner can see the expected
+        // result alongside their own.
+        $feedback = session()->get('practice_feedback');
+        $this->assertSame('passed', $feedback['status']);
+        $this->assertSame($task->expected_rows, $feedback['diff']['expected']);
+
         $this->assertDatabaseHas('practice_task_submissions', [
             'user_id' => $user->id,
             'practice_task_id' => $task->id,

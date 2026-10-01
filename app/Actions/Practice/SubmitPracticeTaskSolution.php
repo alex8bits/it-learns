@@ -24,7 +24,10 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * guards -> the environment cycle (RunPracticeTaskAction, unchanged
  * contract) -> one transaction persisting the attempt and advancing
  * the progress rows. The flash payload gets both the run outcome and
- * the stored submission (diff/error), so no extra read is needed.
+ * the stored submission (error), so no extra read is needed. The
+ * presentation diff ({expected, actual}) is composed once for
+ * Passed/Failed and carried by the outcome DTO for the flash, while
+ * the persisted `result_diff` column keeps its Failed-only semantics.
  *
  * Unlike theory answers, attempts are an append-only history: every
  * non-Busy attempt inserts a new practice_task_submissions row. A
@@ -59,13 +62,16 @@ final class SubmitPracticeTaskSolution
 
         if ($outcome->status === PracticeAttemptStatus::Busy) {
             // A lost lock race means no attempt happened: nothing to store.
-            return new SubmitSolutionOutcome($outcome, null);
+            return new SubmitSolutionOutcome($outcome, null, null);
         }
 
         $result = $outcome->result;
+        $diff = in_array($outcome->status, [PracticeAttemptStatus::Passed, PracticeAttemptStatus::Failed], true)
+            ? ['expected' => $task->expected_rows, 'actual' => $result?->rows]
+            : null;
         $submission = null;
 
-        DB::transaction(function () use ($user, $task, $lesson, $course, $outcome, $result, $code, &$submission): void {
+        DB::transaction(function () use ($user, $task, $lesson, $course, $outcome, $result, $diff, $code, &$submission): void {
             $submission = PracticeTaskSubmission::query()->create([
                 'user_id' => $user->id,
                 'practice_task_id' => $task->id,
@@ -73,9 +79,7 @@ final class SubmitPracticeTaskSolution
                 'status' => $outcome->status->value,
                 'duration_ms' => $result === null ? 0 : (int) round($result->durationMs),
                 'error_text' => $result?->error,
-                'result_diff' => $outcome->status === PracticeAttemptStatus::Failed
-                    ? ['expected' => $task->expected_rows, 'actual' => $result?->rows]
-                    : null,
+                'result_diff' => $outcome->status === PracticeAttemptStatus::Failed ? $diff : null,
                 'created_at' => now(),
             ]);
 
@@ -89,7 +93,7 @@ final class SubmitPracticeTaskSolution
 
         assert($submission instanceof PracticeTaskSubmission);
 
-        return new SubmitSolutionOutcome($outcome, $submission);
+        return new SubmitSolutionOutcome($outcome, $submission, $diff);
     }
 
     /**

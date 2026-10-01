@@ -69,6 +69,13 @@ class SubmitPracticeTaskSolutionTest extends TestCase
         $this->assertSame(PracticeAttemptStatus::Passed, $result->outcome->status);
         $this->assertInstanceOf(PracticeTaskSubmission::class, $result->submission);
 
+        // Presentation diff for the flash: the reference rows plus the
+        // actual rows of the passed attempt.
+        $this->assertSame(
+            ['expected' => $task->expected_rows, 'actual' => [['id' => 1]]],
+            $result->diff,
+        );
+
         $this->assertDatabaseHas('practice_task_submissions', [
             'user_id' => $this->user->id,
             'practice_task_id' => $task->id,
@@ -129,6 +136,12 @@ class SubmitPracticeTaskSolutionTest extends TestCase
             $submission->result_diff,
         );
 
+        // The flash diff is exactly the persisted one for a failed
+        // attempt (the DTO-typed diff goes first: a model magic
+        // property in $expected trips PHPStan's unresolvable-type
+        // false positive — see PracticeEnvironmentManagerBindingTest).
+        $this->assertSame($result->diff, $submission->result_diff);
+
         $this->assertDatabaseHas('practice_task_submissions', [
             'user_id' => $this->user->id,
             'practice_task_id' => $task->id,
@@ -155,6 +168,7 @@ class SubmitPracticeTaskSolutionTest extends TestCase
 
         $this->assertSame('Превышен таймаут исполнения запроса', $submission->error_text);
         $this->assertNull($submission->result_diff);
+        $this->assertNull($result->diff);
 
         $this->assertDatabaseHas('user_lesson_progress', [
             'user_id' => $this->user->id,
@@ -176,6 +190,7 @@ class SubmitPracticeTaskSolutionTest extends TestCase
 
         $this->assertSame(PracticeAttemptStatus::Busy, $result->outcome->status);
         $this->assertNull($result->submission);
+        $this->assertNull($result->diff);
         $this->assertNothingWritten();
     }
 

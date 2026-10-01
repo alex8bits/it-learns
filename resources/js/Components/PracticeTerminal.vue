@@ -68,8 +68,12 @@
                         Показаны первые {{ rowLimit }} из {{ entry.result.rows.length }} строк.
                     </p>
 
+                    <!-- Diff приходит при passed и failed (при error/busy —
+                         null), поэтому рендер ведём по его наличию: таблицы
+                         «Эталон»/«Ваш результат» показываются для обеих
+                         статусных попыток с diff. -->
                     <div
-                        v-if="entry.status === 'failed' && entry.diff && diffSides(entry).length > 0"
+                        v-if="entry.diff && diffSides(entry).length > 0"
                         class="mt-3 grid gap-4 md:grid-cols-2"
                     >
                         <div

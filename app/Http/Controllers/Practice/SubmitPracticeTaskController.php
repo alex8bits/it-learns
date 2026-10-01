@@ -15,8 +15,9 @@ use Illuminate\Http\RedirectResponse;
  * Inertia POST → redirect back: the action runs the attempt, persists the
  * submission and the progress rows atomically, and the one-shot
  * `practice_feedback` flash carries the outcome (result, diff, error) of
- * this particular attempt; the lesson page re-reads everything
- * server-side on the follow-up GET.
+ * this particular attempt — the diff (expected vs actual rows) is present
+ * for both passed and failed attempts; the lesson page re-reads
+ * everything server-side on the follow-up GET.
  */
 class SubmitPracticeTaskController extends Controller
 {
@@ -39,7 +40,7 @@ class SubmitPracticeTaskController extends Controller
                 'duration_ms' => $outcome->result->durationMs,
                 'error' => $outcome->result->error,
             ],
-            'diff' => $result->submission?->result_diff,
+            'diff' => $result->diff,
             'error_text' => $result->submission?->error_text,
         ]);
     }

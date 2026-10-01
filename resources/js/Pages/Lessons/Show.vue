@@ -24,7 +24,8 @@ const props = defineProps({
     // Одноразовый flash последней практической попытки:
     // { task_id, status: 'passed'|'failed'|'error'|'busy',
     //   result: {rows, columns, duration_ms, error}|null,
-    //   diff: {expected, actual}|null, error_text: string|null } | null.
+    //   diff: {expected, actual}|null — присутствует при passed и failed,
+    //   null при error/busy; error_text: string|null } | null.
     practiceFeedback: { type: Object, required: false, default: null },
     // Одноразовый flash ИИ-фидбэка по неудачной попытке (премиум):
     // { task_id, body } | null.
@@ -175,6 +176,12 @@ const practiceHistory = ref([]);
 let practiceHistorySeq = 0;
 const pendingPracticeCode = ref('');
 
+// Последняя решённая попытка (client-only, как practiceHistory):
+// живёт в отдельном ref, чтобы пережить смещение currentPracticeTask
+// и скрытие карточки терминала, — показывает запрос, результат и эталон.
+// Форма: { id, taskId, order, statement, code, result, diff }.
+const solvedAttempt = ref(null);
+
 const submitPractice = () => {
     // Захватываем текст запроса до отправки: practiceForm.code будет
     // очищен ниже в watcher'е practiceFeedback, чтобы запись в истории
@@ -212,6 +219,23 @@ watch(
             error_text: feedback.error_text,
         });
         practiceForm.code = '';
+
+        // Верный ответ дополнительно фиксируем в отдельном ref: журнал
+        // выше очистит watcher смены currentPracticeTask (а карточка
+        // терминала может скрыться вовсе), а карточка «решено» должна
+        // показать запрос, результат и эталон независимо от этого.
+        if (feedback.status === 'passed' && isJustPassed) {
+            const solvedTask = props.practiceTasks.find((task) => task.id === feedback.task_id) ?? null;
+            solvedAttempt.value = solvedTask === null ? null : {
+                id: feedback.task_id,
+                taskId: feedback.task_id,
+                order: solvedTask.order,
+                statement: solvedTask.statement,
+                code: pendingPracticeCode.value,
+                result: feedback.result,
+                diff: feedback.diff,
+            };
+        }
     },
 );
 
@@ -691,6 +715,32 @@ watch(
                 >
                     Верно!
                 </p>
+
+                <!-- Карточка последней решённой попытки: стоит вне v-if
+                     карточки текущего задания ниже — видима и когда
+                     указатель уже сместился на следующее задание, и когда
+                     заданий больше нет. Терминал read-only (disabled):
+                     запрос, результат и — если бэкенд прислал diff —
+                     эталон. -->
+                <div v-if="solvedAttempt" class="mb-4 bg-white rounded-lg shadow border border-gray-200 p-6">
+                    <p class="text-sm font-medium text-green-700 mb-2">
+                        Задание {{ solvedAttempt.order }} решено ✓
+                    </p>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ solvedAttempt.statement }}</h3>
+
+                    <PracticeTerminal
+                        :entries="[{
+                            id: solvedAttempt.id,
+                            code: solvedAttempt.code,
+                            status: 'passed',
+                            result: solvedAttempt.result,
+                            diff: solvedAttempt.diff,
+                            error_text: null,
+                        }]"
+                        code=""
+                        disabled
+                    />
+                </div>
 
                 <div v-if="canRequestAiFeedback" class="mb-4">
                     <Button
