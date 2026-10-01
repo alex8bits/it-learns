@@ -64,6 +64,15 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
     private const ERROR_DOCKER_CLIENT = 'Не удалось исполнить запрос из-за сбоя Docker-клиента';
 
     /**
+     * Engine client warning line prefixes that never describe the
+     * actual failure: the mysql client prints its insecure-password
+     * warning to stderr on every `-p<password>` run, and psql spells
+     * its own notes as `psql: warning:`. Case-insensitive, leading
+     * whitespace tolerated.
+     */
+    private const ENGINE_WARNING_LINE = '/^\s*(?:mysql:\s*\[warning\]|psql:\s*warning:)/i';
+
+    /**
      * Blacklisted first keywords per runtime: session/engine state
      * changes, privilege operations, file-system touching commands
      * and client-level exits from the SQL contract.
@@ -567,11 +576,34 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
 
     /**
      * Cap an engine error to keep the attempt result small; the first
-     * line of mysql/psql stderr already names the syntax position.
+     * line of mysql/psql stderr already names the syntax position. The
+     * mysql/psql client warning lines are dropped before the cap (with
+     * the newlines of the surviving lines preserved), so the student
+     * sees the real failure only; an engine that failed with nothing
+     * but warnings keeps its original text — a non-zero exit must
+     * never degrade into an empty error.
      */
     private function trimEngineError(string $error): string
     {
-        return mb_substr(trim($error), 0, 500);
+        $trimmed = trim($error);
+
+        $lines = preg_split('/\r\n|\r|\n/', $trimmed);
+
+        $kept = array_values(array_filter(
+            is_array($lines) ? $lines : [],
+            static fn (string $line): bool => preg_match(self::ENGINE_WARNING_LINE, $line) !== 1,
+        ));
+
+        $meaningful = array_filter(
+            array_map(trim(...), $kept),
+            static fn (string $line): bool => $line !== '',
+        );
+
+        if ($meaningful === []) {
+            return mb_substr($trimmed, 0, 500);
+        }
+
+        return mb_substr(implode("\n", $kept), 0, 500);
     }
 
     /**

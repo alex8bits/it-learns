@@ -433,6 +433,72 @@ class DockerPracticeEnvironmentTest extends TestCase
         $this->assertSame(500, mb_strlen($result->error ?? ''));
     }
 
+    /**
+     * @param  string  $errorOutput  the raw engine stderr with client warning lines mixed in
+     * @param  string  $expectedError  the error text the student must actually see
+     */
+    #[DataProvider('engineClientWarningProvider')]
+    public function test_execute_drops_engine_client_warning_lines_from_the_error(string $errorOutput, string $expectedError): void
+    {
+        $environment = $this->createDockerEnvironment('cid-warn', PracticeRuntime::Mysql);
+
+        $this->docker->shouldReceive('exec')->once()->andReturn(
+            new DockerExecResult(1, '', $errorOutput, 1.0),
+        );
+
+        $result = $this->manager->execute($environment, 'SELECT boom;');
+
+        $this->assertSame($expectedError, $result->error);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function engineClientWarningProvider(): array
+    {
+        $mysqlWarning = 'mysql: [Warning] Using a password on the command line interface can be insecure.';
+
+        return [
+            'mysql warning above the real error' => [
+                $mysqlWarning."\nERROR 1146 (42S02) at line 1: Table 'practice.product' doesn't exist",
+                "ERROR 1146 (42S02) at line 1: Table 'practice.product' doesn't exist",
+            ],
+            'several mysql warnings between error lines keep the order' => [
+                $mysqlWarning."\nERROR 1064 at line 1: syntax\n".$mysqlWarning."\nERROR 1146 at line 2: missing table",
+                "ERROR 1064 at line 1: syntax\nERROR 1146 at line 2: missing table",
+            ],
+            'psql warning above the real error' => [
+                "psql: warning: extra command-line argument ignored\nERROR: relation \"clients\" does not exist",
+                'ERROR: relation "clients" does not exist',
+            ],
+            'indented lowercase warning is still dropped' => [
+                "  mysql: [warning] quieter spelling\nERROR 1146: missing table",
+                'ERROR 1146: missing table',
+            ],
+            'no warnings keeps the text as-is' => [
+                'ERROR 1054 (42S22): Unknown column',
+                'ERROR 1054 (42S22): Unknown column',
+            ],
+        ];
+    }
+
+    public function test_execute_keeps_the_original_text_when_the_engine_failed_with_warnings_only(): void
+    {
+        $environment = $this->createDockerEnvironment('cid-warn-only', PracticeRuntime::Mysql);
+
+        $warning = 'mysql: [Warning] Using a password on the command line interface can be insecure.';
+
+        $this->docker->shouldReceive('exec')->once()->andReturn(
+            new DockerExecResult(1, '', $warning, 1.0),
+        );
+
+        $result = $this->manager->execute($environment, 'SELECT boom;');
+
+        // A non-zero exit must never degrade into an empty error — the
+        // fallback keeps the raw warning text, still capped at 500.
+        $this->assertSame($warning, $result->error);
+    }
+
     #[DataProvider('metaCommandProvider')]
     public function test_execute_rejects_psql_meta_commands_before_any_docker_call(string $code): void
     {
