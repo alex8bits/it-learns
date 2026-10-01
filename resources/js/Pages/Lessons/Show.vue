@@ -21,6 +21,11 @@ const props = defineProps({
     practiceTasks: { type: Array, required: false, default: () => [] },
     // Id заданий этого урока, у которых есть Passed-попытка пользователя.
     passedPracticeTaskIds: { type: Array, required: false, default: () => [] },
+    // Решённые задания (персистентный review): task_id => {code, passed_at,
+    // expected_rows} — последняя Passed-попытка. expected_rows покидает
+    // сервер только здесь (зеркало теоретического correct_option-исключения
+    // из spoiler-гварда): для решённой задачи эталон уже не спойлер.
+    solvedPracticeTasks: { type: Object, required: false, default: () => ({}) },
     // Одноразовый flash последней практической попытки:
     // { task_id, status: 'passed'|'failed'|'error'|'busy',
     //   result: {rows, columns, duration_ms, error}|null,
@@ -142,6 +147,22 @@ const currentPracticeTask = computed(
 );
 const passedPracticeCount = computed(() => props.passedPracticeTaskIds.length);
 
+// Персистентный review практики — решённые задания урока в их порядке:
+// формулировка из practiceTasks + код/результат последней Passed-попытки
+// из solvedPracticeTasks. Заменяет прежнюю client-only карточку решённой
+// попытки: переживает перезагрузку и обновляется сразу после POST → 303 back.
+const solvedPracticeReview = computed(() =>
+    props.practiceTasks
+        .filter((task) => props.solvedPracticeTasks[task.id] !== undefined)
+        .map((task) => ({
+            id: task.id,
+            order: task.order,
+            statement: task.statement,
+            code: props.solvedPracticeTasks[task.id].code,
+            result: { rows: props.solvedPracticeTasks[task.id].expected_rows },
+        })),
+);
+
 // Flash показываем, только если он относится к текущему заданию
 // (failed/error/busy — задание не сместилось) или к только что решённому
 // (passed — флоу уже перешёл дальше, вплоть до «Практика пройдена»).
@@ -176,12 +197,6 @@ const practiceHistory = ref([]);
 let practiceHistorySeq = 0;
 const pendingPracticeCode = ref('');
 
-// Последняя решённая попытка (client-only, как practiceHistory):
-// живёт в отдельном ref, чтобы пережить смещение currentPracticeTask
-// и скрытие карточки терминала, — показывает запрос, результат и эталон.
-// Форма: { id, taskId, order, statement, code, result, diff }.
-const solvedAttempt = ref(null);
-
 const submitPractice = () => {
     // Захватываем текст запроса до отправки: practiceForm.code будет
     // очищен ниже в watcher'е practiceFeedback, чтобы запись в истории
@@ -194,9 +209,10 @@ const submitPractice = () => {
 
 // Обрабатываем приход релевантного practiceFeedback (тот же критерий
 // релевантности, что и в shownPracticeFeedback выше): журнал терминала
-// пополняется только попытками текущего задания, passed фиксируется
-// в solvedAttempt. busy-попытки записи не создают — на них ученик
-// повторяет отправку без потери введённого кода.
+// пополняется только попытками текущего задания; passed в журнал не
+// попадает — его выводит персистентная секция review из серверного
+// prop. busy-попытки записи не создают — на них ученик повторяет
+// отправку без потери введённого кода.
 watch(
     () => props.practiceFeedback,
     (feedback) => {
@@ -213,9 +229,9 @@ watch(
 
         // Журнал терминала ведётся только для попыток текущего задания
         // (failed/error — история ретраев в контексте того же задания).
-        // Passed-попытка в журнал не пишется: её вывод показывает карточка
-        // «Задание N решено ✓» (solvedAttempt ниже), а терминал следующего
-        // задания должен стартовать пустым.
+        // Passed-попытка в журнал не пишется: её вывод — персистентная
+        // секция review из серверного prop (solvedPracticeTasks), а
+        // терминал следующего задания должен стартовать пустым.
         if (isForCurrentTask) {
             practiceHistory.value.push({
                 id: ++practiceHistorySeq,
@@ -227,24 +243,6 @@ watch(
             });
         }
         practiceForm.code = '';
-
-        // Верный ответ фиксируем в отдельном ref: passed-попытка в журнал
-        // выше не попадает, поэтому карточка «решено» — единственное место
-        // её вывода. Ref переживает смещение currentPracticeTask (карточка
-        // терминала может скрыться вовсе) и показывает запрос, результат
-        // и эталон.
-        if (feedback.status === 'passed' && isJustPassed) {
-            const solvedTask = props.practiceTasks.find((task) => task.id === feedback.task_id) ?? null;
-            solvedAttempt.value = solvedTask === null ? null : {
-                id: feedback.task_id,
-                taskId: feedback.task_id,
-                order: solvedTask.order,
-                statement: solvedTask.statement,
-                code: pendingPracticeCode.value,
-                result: feedback.result,
-                diff: feedback.diff,
-            };
-        }
     },
 );
 
@@ -725,30 +723,32 @@ watch(
                     Верно!
                 </p>
 
-                <!-- Карточка последней решённой попытки: стоит вне v-if
-                     карточки текущего задания ниже — видима и когда
-                     указатель уже сместился на следующее задание, и когда
-                     заданий больше нет. Терминал read-only (disabled):
-                     запрос, результат и — если бэкенд прислал diff —
-                     эталон. -->
-                <div v-if="solvedAttempt" class="mb-4 bg-white rounded-lg shadow border border-gray-200 p-6">
-                    <p class="text-sm font-medium text-green-700 mb-2">
-                        Задание {{ solvedAttempt.order }} решено ✓
-                    </p>
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ solvedAttempt.statement }}</h3>
+                <!-- Персистентный review практики: карточка на каждое решённое
+                     задание — формулировка + SQL пользователя + канонический
+                     результат (терминал read-only). Данные серверные:
+                     переживает перезагрузку, обновляется после POST → 303 back. -->
+                <div v-if="solvedPracticeReview.length > 0" class="mb-4 space-y-4">
+                    <div
+                        v-for="task in solvedPracticeReview"
+                        :key="task.id"
+                        class="bg-white rounded-lg shadow border border-gray-200 p-6"
+                    >
+                        <p class="text-sm font-medium text-green-700 mb-2">
+                            Задание {{ task.order }} решено ✓
+                        </p>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ task.statement }}</h3>
 
-                    <PracticeTerminal
-                        :entries="[{
-                            id: solvedAttempt.id,
-                            code: solvedAttempt.code,
-                            status: 'passed',
-                            result: solvedAttempt.result,
-                            diff: solvedAttempt.diff,
-                            error_text: null,
-                        }]"
-                        code=""
-                        disabled
-                    />
+                        <PracticeTerminal
+                            :entries="[{
+                                id: task.id,
+                                code: task.code,
+                                status: 'passed',
+                                result: task.result,
+                            }]"
+                            code=""
+                            disabled
+                        />
+                    </div>
                 </div>
 
                 <div v-if="canRequestAiFeedback" class="mb-4">

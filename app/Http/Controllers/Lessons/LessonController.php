@@ -19,6 +19,7 @@ use App\Models\UserTheoryTaskAnswer;
 use App\Services\Courses\NextLessonResolver;
 use App\Services\Lessons\MaterialRenderer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -56,6 +57,10 @@ class LessonController extends Controller
         // mapper (for the `correct_option` field) and the `answers` prop
         // — see buildCorrectOptionFor() for the spoiler-guard exception.
         $userAnswers = $this->userAnswers($user->id, $lesson);
+
+        // The persistent solved-practice review — also the single source
+        // of `passedPracticeTaskIds` below (see solvedPracticeTasks()).
+        $solved = $this->solvedPracticeTasks($user->id, $lesson);
 
         return Inertia::render('Lessons/Show', [
             'lesson' => [
@@ -112,7 +117,8 @@ class LessonController extends Controller
                 ])
                 ->values()
                 ->all(),
-            'passedPracticeTaskIds' => $this->passedPracticeTaskIds($user->id, $lesson),
+            'passedPracticeTaskIds' => array_map('intval', array_keys($solved)),
+            'solvedPracticeTasks' => $solved,
             'practiceFeedback' => $request->session()->get('practice_feedback'),
             // Премиум ИИ-флоу (Этап 8): одноразовые flash'и ИИ-роутов —
             // фидбэк по неудачной попытке и сгенерированная доп. задача
@@ -212,29 +218,62 @@ class LessonController extends Controller
     }
 
     /**
-     * Ids of the lesson's practice tasks the user has already solved
-     * (has at least one Passed attempt) — a single distinct query. The
-     * UI opens the first task missing from this list (the sequence
-     * gating is a UI-level concern, same as the theory quiz).
+     * The user's latest Passed submission per practice task of the lesson
+     * as a task_id => {code, passed_at, expected_rows} map — the persistent
+     * "solved review" data. Only tasks the user has actually solved are
+     * present. `expected_rows` is the task's canonical result: a Passed
+     * attempt is hash-equal to it (RunPracticeTaskAction::resolveStatus),
+     * so the review renders the canonical table without persisting the
+     * executed rows. This is the practice-side mirror of the theory
+     * `correct_option` spoiler-guard exception: the task is already solved.
      *
-     * @return array<int, int>
+     * `passedPracticeTaskIds` is derived from this map's keys — the map
+     * is built in the lesson's task order (not the groupBy order), so the
+     * prop keeps its semantics: a list of ints in the task order.
+     *
+     * @return array<int, array{code: string, passed_at: string|null, expected_rows: array<int, array<string, mixed>>}>
      */
-    private function passedPracticeTaskIds(int $userId, Lesson $lesson): array
+    private function solvedPracticeTasks(int $userId, Lesson $lesson): array
     {
-        $taskIds = $lesson->practiceTasks->pluck('id');
+        $tasks = $lesson->practiceTasks;
 
-        if ($taskIds->isEmpty()) {
+        if ($tasks->isEmpty()) {
             return [];
         }
 
-        return PracticeTaskSubmission::query()
+        $latestPassed = PracticeTaskSubmission::query()
             ->where('user_id', $userId)
-            ->whereIn('practice_task_id', $taskIds)
+            ->whereIn('practice_task_id', $tasks->pluck('id'))
             ->where('status', PracticeAttemptStatus::Passed)
-            ->distinct()
-            ->pluck('practice_task_id')
-            ->map(fn (mixed $id): int => (int) $id)
-            ->all();
+            // Append-only history: the max id IS the latest attempt, so
+            // the first row of each groupBy group is the one to show.
+            ->orderByDesc('id')
+            ->get(['practice_task_id', 'code', 'created_at'])
+            ->groupBy('practice_task_id');
+
+        $solved = [];
+
+        foreach ($tasks as $task) {
+            $submission = $latestPassed->get($task->id)?->first();
+
+            if ($submission === null) {
+                continue;
+            }
+
+            /** @var array<int, array<string, mixed>> */
+            $expectedRows = $task->expected_rows;
+
+            $solved[$task->id] = [
+                'code' => $submission->code,
+                // The datetime cast already yields a Carbon instance;
+                // Carbon::parse() keeps this correct (and phpstan-honest)
+                // for the raw-string shape of the partial-select too.
+                'passed_at' => Carbon::parse($submission->created_at)->toISOString(),
+                'expected_rows' => $expectedRows,
+            ];
+        }
+
+        return $solved;
     }
 
     /**

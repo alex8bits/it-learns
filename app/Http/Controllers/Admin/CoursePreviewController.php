@@ -140,6 +140,10 @@ class CoursePreviewController extends Controller
                 ->values()
                 ->all(),
             'passedPracticeTaskIds' => [],
+            // Solved-practice review is user-specific: the admin never
+            // solves tasks in the read-only preview, so the map is always
+            // empty (the mirror of the stubs above).
+            'solvedPracticeTasks' => [],
             'practiceFeedback' => null,
             'aiFeedback' => null,
             'extraTask' => null,

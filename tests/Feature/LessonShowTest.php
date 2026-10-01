@@ -7,6 +7,8 @@ namespace Tests\Feature;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\Level;
+use App\Models\PracticeTask;
+use App\Models\PracticeTaskSubmission;
 use App\Models\TheoryTask;
 use App\Models\User;
 use App\Models\UserTheoryTaskAnswer;
@@ -19,7 +21,9 @@ use Tests\TestCase;
  * `.mavis/design/2026-09-17-lesson-staged-flow.md:96` — student-side
  * ассертов на шейп props теории до сих пор не было. Проверяем
  * spoiler-гвард `is_correct`/`error_text` опции и появление
- * `correct_option` только для верно решённых задач.
+ * `correct_option` только для верно решённых задач. Сюда же — smoke
+ * персистентного review практики: prop `solvedPracticeTasks` (последняя
+ * Passed-попытка + эталонные строки) и его spoiler-гвард.
  */
 class LessonShowTest extends TestCase
 {
@@ -81,6 +85,55 @@ class LessonShowTest extends TestCase
                 $task1->id => ['option_id' => $correct1->id, 'is_correct' => true],
                 $task2->id => ['option_id' => $wrong2->id, 'is_correct' => false],
             ]));
+    }
+
+    public function test_shows_solved_practice_review_only_for_solved_tasks(): void
+    {
+        $user = User::factory()->create();
+        $course = Course::factory()->published()->create();
+        $level = Level::factory()->for($course)->create(['order' => 1]);
+        $lesson = Lesson::factory()->for($level)->create(['order' => 1]);
+
+        $task1 = PracticeTask::factory()->for($lesson)->create(['order' => 1]);
+        $task2 = PracticeTask::factory()->for($lesson)->create(['order' => 2]);
+
+        // task1: старая Failed-попытка + свежая Passed (последняя по id —
+        // история append-only), task2 — без попыток вообще.
+        PracticeTaskSubmission::factory()
+            ->for($user)
+            ->for($task1)
+            ->failed()
+            ->create([
+                'code' => 'SELECT title FROM books ORDER BY year DESC',
+                'created_at' => now()->subHour(),
+            ]);
+        $passed = PracticeTaskSubmission::factory()
+            ->for($user)
+            ->for($task1)
+            ->passed()
+            ->create([
+                'code' => 'SELECT id, title, year FROM books ORDER BY year ASC',
+                'created_at' => now()->subMinute(),
+            ]);
+
+        $response = $this->actingAs($user)->get(route('lessons.show', $lesson->slug));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            // Review содержит только решённую task1 и именно её последнюю
+            // Passed-попытку (не Failed-код).
+            ->where('solvedPracticeTasks.'.$task1->id.'.code', $passed->code)
+            ->where('solvedPracticeTasks.'.$task1->id.'.passed_at', fn ($value): bool => is_string($value) && $value !== '')
+            ->where('solvedPracticeTasks.'.$task1->id.'.expected_rows', $task1->expected_rows)
+            // task2 не решена — в map её нет.
+            ->missing('solvedPracticeTasks.'.$task2->id)
+            // passedPracticeTaskIds выводится из той же map.
+            ->where('passedPracticeTaskIds', [$task1->id])
+            // Spoiler-гвард практики держится: эталон покидает сервер
+            // только внутри solved-записи, practiceTasks[] не расширяется.
+            ->missing('practiceTasks.0.expected_rows')
+            ->missing('practiceTasks.0.seed_sql'));
     }
 
     public function test_guest_is_redirected_to_login(): void
