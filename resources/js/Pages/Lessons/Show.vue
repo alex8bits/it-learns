@@ -192,10 +192,11 @@ const submitPractice = () => {
     practiceForm.post(`/practice-tasks/${currentPracticeTask.value.id}/submit`);
 };
 
-// Пополняем журнал при приходе релевантного practiceFeedback (тот же
-// критерий релевантности, что и в shownPracticeFeedback выше).
-// busy-попытки записи не создают — на них ученик повторяет отправку
-// без потери введённого кода.
+// Обрабатываем приход релевантного practiceFeedback (тот же критерий
+// релевантности, что и в shownPracticeFeedback выше): журнал терминала
+// пополняется только попытками текущего задания, passed фиксируется
+// в solvedAttempt. busy-попытки записи не создают — на них ученик
+// повторяет отправку без потери введённого кода.
 watch(
     () => props.practiceFeedback,
     (feedback) => {
@@ -210,20 +211,28 @@ watch(
             return;
         }
 
-        practiceHistory.value.push({
-            id: ++practiceHistorySeq,
-            code: pendingPracticeCode.value,
-            status: feedback.status,
-            result: feedback.result,
-            diff: feedback.diff,
-            error_text: feedback.error_text,
-        });
+        // Журнал терминала ведётся только для попыток текущего задания
+        // (failed/error — история ретраев в контексте того же задания).
+        // Passed-попытка в журнал не пишется: её вывод показывает карточка
+        // «Задание N решено ✓» (solvedAttempt ниже), а терминал следующего
+        // задания должен стартовать пустым.
+        if (isForCurrentTask) {
+            practiceHistory.value.push({
+                id: ++practiceHistorySeq,
+                code: pendingPracticeCode.value,
+                status: feedback.status,
+                result: feedback.result,
+                diff: feedback.diff,
+                error_text: feedback.error_text,
+            });
+        }
         practiceForm.code = '';
 
-        // Верный ответ дополнительно фиксируем в отдельном ref: журнал
-        // выше очистит watcher смены currentPracticeTask (а карточка
-        // терминала может скрыться вовсе), а карточка «решено» должна
-        // показать запрос, результат и эталон независимо от этого.
+        // Верный ответ фиксируем в отдельном ref: passed-попытка в журнал
+        // выше не попадает, поэтому карточка «решено» — единственное место
+        // её вывода. Ref переживает смещение currentPracticeTask (карточка
+        // терминала может скрыться вовсе) и показывает запрос, результат
+        // и эталон.
         if (feedback.status === 'passed' && isJustPassed) {
             const solvedTask = props.practiceTasks.find((task) => task.id === feedback.task_id) ?? null;
             solvedAttempt.value = solvedTask === null ? null : {
