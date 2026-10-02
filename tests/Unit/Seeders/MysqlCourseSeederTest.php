@@ -59,29 +59,30 @@ class MysqlCourseSeederTest extends TestCase
         $lesson = Lesson::query()->where('slug', 'what-is-a-database')->firstOrFail();
 
         $this->assertSame($basics->id, $lesson->level_id);
-        $this->assertSame('Что такое база данных и СУБД', $lesson->title);
+        $this->assertSame('Что такое БД и СУБД: таблицы, строки, столбцы; где применяется', $lesson->title);
         $this->assertSame(1, $lesson->order);
         $this->assertTrue($lesson->is_published);
 
         // Material is the raw `## Материал` section: real markdown with
         // code fences, no section headings leaked in.
-        $this->assertStringContainsString('SELECT name, price FROM products;', $lesson->material);
+        $this->assertStringContainsString("SELECT name, price\nFROM products;", $lesson->material);
         $this->assertStringNotContainsString('## Материал', $lesson->material);
         $this->assertStringNotContainsString('### Вопрос 1', $lesson->material);
     }
 
     public function test_parses_first_lesson_with_legitimate_subsection_heading(): void
     {
-        // The real `## Материал` section in this lesson opens with a
-        // `### Проблема: ...` subheading: a legitimate subsection title,
-        // not a stray section marker. stripLeadingSectionHeading() must
-        // preserve it (only stray `##` headings are its target).
+        // The real `## Материал` section in this lesson carries a
+        // `### База данных против файла на диске` subheading: a
+        // legitimate subsection title, not a stray section marker.
+        // stripLeadingSectionHeading() must preserve it (only stray
+        // `##` headings are its target).
         $this->seed(MysqlCourseSeeder::class);
 
         $lesson = Lesson::query()->where('slug', 'what-is-a-database')->firstOrFail();
 
         $this->assertStringContainsString(
-            '### Проблема: как хранить данные, когда их становится много',
+            '### База данных против файла на диске',
             $lesson->material,
         );
         $this->assertStringStartsNotWith("\n", $lesson->material);
@@ -166,6 +167,56 @@ class MysqlCourseSeederTest extends TestCase
         $this->assertStringStartsNotWith("\n", $lesson->material);
     }
 
+    public function test_previously_section_is_excluded_from_the_lesson_material(): void
+    {
+        // New file format (docs/mysql-lesson-rule.md §1): the
+        // covered-lessons map lives in its own `## Ранее в курсе` H2
+        // section between the H1 and `## Материал`. splitByHeadings()
+        // puts that section into a chunk parseLessonFile() never reads,
+        // so `lessons.material` starts with the overview paragraph and
+        // carries neither the section heading nor the list items.
+        $question = self::validQuestion();
+
+        $body = <<<MD
+        # Урок
+
+        ## Ранее в курсе
+
+        - Урок 1 уровня «Основы»: данные, файлы и первая таблица.
+        - Урок 2 уровня «Основы»: первый запрос SELECT.
+
+        ## Материал
+
+        Этот урок продолжает тему: разобравшись со структурой таблиц, переходим к тому, как выбирать из них нужные данные.
+
+        ### Тематический раздел
+
+        Текст тематического раздела.
+
+        ## Теоретические задания
+
+        {$question}
+        MD;
+
+        $seeder = $this->writeFixtureFile(
+            'basics-02-previously-section.md',
+            self::lessonFile(self::validFrontmatter(), $body),
+        );
+
+        $seeder->run();
+
+        $lesson = Lesson::query()->where('slug', 'previously-section')->firstOrFail();
+
+        $this->assertStringStartsWith(
+            'Этот урок продолжает тему: разобравшись со структурой таблиц, переходим к тому, как выбирать из них нужные данные.',
+            $lesson->material,
+        );
+        $this->assertStringNotContainsString('Ранее в курсе', $lesson->material);
+        $this->assertStringNotContainsString('данные, файлы и первая таблица', $lesson->material);
+        $this->assertStringNotContainsString('первый запрос SELECT', $lesson->material);
+        $this->assertStringContainsString('### Тематический раздел', $lesson->material);
+    }
+
     public function test_lesson_gets_five_theory_tasks_with_parsed_options(): void
     {
         $this->seed(MysqlCourseSeeder::class);
@@ -205,7 +256,7 @@ class MysqlCourseSeederTest extends TestCase
 
         $this->assertTrue($firstOption->is_correct);
         $this->assertSame(
-            'База данных — само хранилище структурированных данных, а СУБД — программа, которая этим хранилищем управляет',
+            'база данных — сами организованные данные, а СУБД — программа, которая ими управляет: принимает запросы, следит за целостностью и хранением',
             $firstOption->text,
         );
 
@@ -213,17 +264,17 @@ class MysqlCourseSeederTest extends TestCase
         // must happen on the `— error_text:` marker, not on a bare dash.
         $this->assertSame(
             [
-                'База данных — само хранилище структурированных данных, а СУБД — программа, которая этим хранилищем управляет',
-                'Это два названия одного и того же',
-                'СУБД — это хранилище данных, а база данных — программа для управления им',
+                'база данных — сами организованные данные, а СУБД — программа, которая ими управляет: принимает запросы, следит за целостностью и хранением',
+                'СУБД — это хранилище данных, а база данных — программа для работы с ними',
+                'это два названия одной и той же программы',
             ],
             $firstTaskOptions->pluck('text')->all(),
         );
         $this->assertSame(
             [
                 null,
-                'понятия разные: данные лежат в базе данных, а MySQL — это программа (СУБД), которая их хранит, защищает и обрабатывает. Смешение терминов мешает понимать, где чья ответственность.',
-                'понятия переставлены местами: программой является именно СУБД (например, MySQL), а хранилищем — база данных.',
+                'понятия переставлены местами: программой является именно СУБД (например, MySQL), а база данных — сами данные, разложенные по строгой структуре таблиц.',
+                'СУБД — программа, база данных — данные, которыми она управляет. В разговорной речи их иногда путают, но у этих понятий разная ответственность.',
             ],
             $firstTaskOptions->pluck('error_text')->all(),
         );
@@ -246,8 +297,6 @@ class MysqlCourseSeederTest extends TestCase
             $this->assertIsString($task->expected_result_text);
             $this->assertNotSame('', $task->expected_result_text);
             $this->assertIsString($task->seed_sql);
-            $this->assertStringContainsString('CREATE TABLE products', $task->seed_sql);
-            $this->assertStringContainsString('INSERT INTO products', $task->seed_sql);
 
             // Author-only HTML comments (reference solutions) never
             // reach the seeded fields.
@@ -259,6 +308,10 @@ class MysqlCourseSeederTest extends TestCase
         $second = PracticeTask::query()->where('lesson_id', $lesson->id)->where('order', 2)->firstOrFail();
 
         $this->assertStringContainsString('столбцы `name` и `price`', $first->statement);
+        $this->assertStringContainsString('CREATE TABLE products', $first->seed_sql);
+        $this->assertStringContainsString('INSERT INTO products', $first->seed_sql);
+        $this->assertStringContainsString('CREATE TABLE customers', $second->seed_sql);
+        $this->assertStringContainsString('INSERT INTO customers', $second->seed_sql);
 
         // Cells stay strings — no type coercion; the canonical
         // serializer normalizes values when hashing. The single
@@ -268,11 +321,11 @@ class MysqlCourseSeederTest extends TestCase
         // batch-mode `NULL` to PHP null. Empty cells stay `''`.
         $this->assertSame(
             [
-                ['name' => 'Клавиатура механическая', 'price' => '4990.00'],
-                ['name' => 'Мышь беспроводная', 'price' => '1290.50'],
-                ['name' => 'Монитор 21 дюйм', 'price' => '24990.00'],
-                ['name' => 'USB-хаб на 7 портов', 'price' => '1890.00'],
-                ['name' => 'Веб-камера 1080p', 'price' => '3590.00'],
+                ['name' => 'Наушники накладные', 'price' => '3490.00'],
+                ['name' => 'Флеш-накопитель 64 ГБ', 'price' => '790.00'],
+                ['name' => 'Роутер Wi-Fi 6', 'price' => '5990.00'],
+                ['name' => 'Веб-камера 1080p', 'price' => '2790.00'],
+                ['name' => 'USB-удлинитель 3 метра', 'price' => '450.00'],
             ],
             $first->expected_rows,
         );
@@ -284,17 +337,16 @@ class MysqlCourseSeederTest extends TestCase
 
         $this->assertSame(
             [
-                ['id' => '1', 'name' => 'Клавиатура механическая', 'price' => '4990.00', 'stock' => '12'],
-                ['id' => '2', 'name' => 'Мышь беспроводная', 'price' => '1290.50', 'stock' => '47'],
-                ['id' => '3', 'name' => 'Монитор 21 дюйм', 'price' => '24990.00', 'stock' => '5'],
-                ['id' => '4', 'name' => 'USB-хаб на 7 портов', 'price' => '1890.00', 'stock' => '0'],
-                ['id' => '5', 'name' => 'Веб-камера 1080p', 'price' => '3590.00', 'stock' => '23'],
+                ['name' => 'Мария Иванова', 'city' => 'Екатеринбург', 'email' => 'maria@example.com'],
+                ['name' => 'Павел Смирнов', 'city' => 'Краснодар', 'email' => 'pavel@example.com'],
+                ['name' => 'Виктория Кузнецова', 'city' => 'Самара', 'email' => 'viktoria@example.com'],
+                ['name' => 'Сергей Морозов', 'city' => 'Воронеж', 'email' => 'sergey@example.com'],
             ],
             $second->expected_rows,
         );
 
         $this->assertSame(
-            app(CanonicalResultSerializer::class)->hash($second->expected_rows, ['id', 'name', 'price', 'stock']),
+            app(CanonicalResultSerializer::class)->hash($second->expected_rows, ['name', 'city', 'email']),
             $second->expected_hash,
         );
     }
@@ -344,6 +396,8 @@ class MysqlCourseSeederTest extends TestCase
         // any string — so swapping `NULL` and `''` would not just
         // collide in storage, it would change the hash.
         $practiceTask = <<<'MD'
+        ### Задание 1: NULL и пустая строка
+
         **statement:**
 
         Выведите все строки таблицы.
@@ -377,7 +431,7 @@ class MysqlCourseSeederTest extends TestCase
 
         $seeder->run();
 
-        $task = PracticeTask::query()->where('lesson_id', Lesson::query()->where('slug', 'fixture-lesson')->firstOrFail()->id)->firstOrFail();
+        $task = PracticeTask::query()->where('lesson_id', Lesson::query()->where('slug', 'null-cell-fixture')->firstOrFail()->id)->firstOrFail();
 
         // Storage layer: NULL → PHP null, '' → ''.
         $this->assertSame(
@@ -545,6 +599,26 @@ class MysqlCourseSeederTest extends TestCase
 
         MD;
 
+        $materialOpensWithPreviously = <<<'MD'
+        # Урок
+
+        ## Материал
+
+        ### Ранее в курсе
+
+        - Урок 1 уровня «Основы»: введение.
+
+        Материал урока после списка.
+
+        ## Теоретические задания
+
+        ### Вопрос 1: Один ли верный вариант?
+
+        - ✅ Верный вариант
+        - ❌ Неверный вариант — error_text: почему он неверен
+
+        MD;
+
         $twoCorrectQuestion = <<<'MD'
         ### Вопрос 1: Один ли верный вариант?
 
@@ -579,6 +653,11 @@ class MysqlCourseSeederTest extends TestCase
                 'filename' => 'basics-01-empty-material.md',
                 'content' => self::lessonFile(self::validFrontmatter(), $emptyMaterialBody),
                 'message' => 'секция `## Материал` отсутствует или пуста',
+            ],
+            'материал начинается с подраздела «Ранее в курсе»' => [
+                'filename' => 'basics-01-material-opens-with-previously.md',
+                'content' => self::lessonFile(self::validFrontmatter(), $materialOpensWithPreviously),
+                'message' => 'секция `## Материал` не должна начинаться с подраздела `### Ранее в курсе`',
             ],
             'ноль правильных вариантов в вопросе' => [
                 'filename' => 'basics-01-zero-correct.md',

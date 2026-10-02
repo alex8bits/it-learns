@@ -20,10 +20,14 @@ use RuntimeException;
 /**
  * Seeds the MySQL course from the lesson markdown files in `docs/mysql/`
  * (the file format is the machine-readable contract of
- * docs/mysql-lesson-rule.md §5). Re-running is append-only: the course
- * and its four fixed levels are ensured via firstOrCreate, a lesson
- * whose slug already exists is skipped as a whole (never updated, never
- * duplicated), and only missing lessons are created.
+ * docs/mysql-lesson-rule.md §5). The `## Ранее в курсе` section (the
+ * covered-lessons map for the author/bot, docs/mysql-lesson-rule.md §1)
+ * is never transferred to `lessons.material`, and a material opening
+ * with a `### Ранее в курсе` subsection is rejected as the retired
+ * format. Re-running is append-only: the course and its four fixed
+ * levels are ensured via firstOrCreate, a lesson whose slug already
+ * exists is skipped as a whole (never updated, never duplicated), and
+ * only missing lessons are created.
  */
 class MysqlCourseSeeder extends Seeder
 {
@@ -220,6 +224,7 @@ class MysqlCourseSeeder extends Seeder
         // headings (`###` … `######`) are legitimate subsection titles
         // inside the material and are preserved.
         $material = $this->stripLeadingSectionHeading($material);
+        $this->assertMaterialDoesNotOpenWithPreviouslySection($material, $filename);
 
         $theorySection = $sections['Теоретические задания'] ?? null;
 
@@ -429,6 +434,32 @@ class MysqlCourseSeeder extends Seeder
         }
 
         return ltrim(implode("\n", array_slice($lines, $stripped)), "\n");
+    }
+
+    /**
+     * Guard against the retired lesson format: `## Материал` must not
+     * open with a `### Ранее в курсе` subsection. The covered-lessons
+     * map lives in its own `## Ранее в курсе` H2 section placed before
+     * `## Материал` (docs/mysql-lesson-rule.md §1), which
+     * splitByHeadings() already keeps out of the material; a file
+     * composed the old way must fail the seed loudly instead of leaking
+     * the list into `lessons.material`. Only the FIRST non-empty line
+     * is checked (a deliberately narrow guard): a mid-material
+     * occurrence of the heading is governed by the rule, not here.
+     */
+    private function assertMaterialDoesNotOpenWithPreviouslySection(string $material, string $filename): void
+    {
+        foreach (explode("\n", $material) as $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+
+            if (trim($line) === '### Ранее в курсе') {
+                throw new RuntimeException("[mysql] `{$filename}`: секция `## Материал` не должна начинаться с подраздела `### Ранее в курсе` — карта пройденного живёт в отдельной секции `## Ранее в курсе` перед `## Материал` и в БД не переносится (docs/mysql-lesson-rule.md §1).");
+            }
+
+            return;
+        }
     }
 
     /**
