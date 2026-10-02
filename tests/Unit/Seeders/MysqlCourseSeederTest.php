@@ -539,6 +539,58 @@ class MysqlCourseSeederTest extends TestCase
         $this->assertSame(0, PracticeTask::query()->where('lesson_id', $lesson->id)->count());
     }
 
+    /**
+     * @return array<string, array{titleLine: string, expectedTitle: string}>
+     */
+    public static function quotedTitleProvider(): array
+    {
+        return [
+            'двойные кавычки, двоеточие внутри значения' => [
+                'titleLine' => 'title: "Двойные кавычки: значение"',
+                'expectedTitle' => 'Двойные кавычки: значение',
+            ],
+            'одинарные кавычки' => [
+                'titleLine' => "title: 'Одинарные'",
+                'expectedTitle' => 'Одинарные',
+            ],
+            'кавычки внутри текста — обрамляющей пары нет' => [
+                'titleLine' => 'title: Кавычки "внутри" текста',
+                'expectedTitle' => 'Кавычки "внутри" текста',
+            ],
+            'непарная обрамляющая кавычка' => [
+                'titleLine' => 'title: "начало без конца',
+                'expectedTitle' => '"начало без конца',
+            ],
+        ];
+    }
+
+    #[DataProvider('quotedTitleProvider')]
+    public function test_frontmatter_title_surrounding_yaml_quotes_are_stripped_before_seeding(string $titleLine, string $expectedTitle): void
+    {
+        // The real lesson files legitimately write `title: "…"` — valid
+        // YAML quoting (54 of 55 files do). The bare string, not the
+        // quote delimiters, must reach `lessons.title`: exactly ONE
+        // layer of a PAIRED quote around the whole value is stripped,
+        // while quotes inside the value and an unpaired quote stay.
+        $frontmatter = <<<MD
+        level_slug: basics
+        lesson: 2
+        {$titleLine}
+        practice: no             # yes | no — по колонке «Практика» в docs/mysql.md
+        MD;
+
+        $seeder = $this->writeFixtureFile(
+            'basics-02-title-quoting.md',
+            self::lessonFile($frontmatter, self::theoryBody(self::validQuestion())),
+        );
+
+        $seeder->run();
+
+        $lesson = Lesson::query()->where('slug', 'title-quoting')->firstOrFail();
+
+        $this->assertSame($expectedTitle, $lesson->title);
+    }
+
     public function test_files_not_matching_the_filename_pattern_are_quietly_skipped(): void
     {
         // `notes.md` never matches the `*-*.md` glob at all, while
@@ -574,6 +626,16 @@ class MysqlCourseSeederTest extends TestCase
         $missingTitle = <<<'MD'
         level_slug: basics
         lesson: 2
+        practice: no
+        MD;
+
+        // An empty quoted title unquotes to '' and must fail the seed
+        // loudly: before quote stripping it would have seeded the two
+        // quote characters as the lesson title.
+        $emptyQuotedTitle = <<<'MD'
+        level_slug: basics
+        lesson: 2
+        title: ""
         practice: no
         MD;
 
@@ -647,6 +709,11 @@ class MysqlCourseSeederTest extends TestCase
             'frontmatter без title' => [
                 'filename' => 'basics-01-missing-title.md',
                 'content' => self::lessonFile($missingTitle, self::theoryBody(self::validQuestion())),
+                'message' => 'frontmatter `title` отсутствует',
+            ],
+            'пустой title в кавычках' => [
+                'filename' => 'basics-01-empty-quoted-title.md',
+                'content' => self::lessonFile($emptyQuotedTitle, self::theoryBody(self::validQuestion())),
                 'message' => 'frontmatter `title` отсутствует',
             ],
             'пустая секция «Материал»' => [

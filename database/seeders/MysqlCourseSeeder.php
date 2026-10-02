@@ -318,7 +318,11 @@ class MysqlCourseSeeder extends Seeder
      * after the closing `---`. Inline ` #` comments are stripped from
      * the template's annotated keys only (see
      * FRONTMATTER_COMMENTED_KEYS), never from values such as `title`
-     * that may legitimately contain `#`.
+     * that may legitimately contain `#`. A single layer of
+     * surrounding YAML quotes (`"…"` / `'…'`) is then stripped from
+     * every value: the lesson files legitimately quote their `title`
+     * (valid YAML), and the database must receive the bare string,
+     * never the quote delimiters.
      *
      * @return array{0: array<string, string>, 1: string}
      */
@@ -352,6 +356,18 @@ class MysqlCourseSeeder extends Seeder
 
             if (in_array($key, self::FRONTMATTER_COMMENTED_KEYS, true)) {
                 $value = trim(preg_replace('/\s+#.*$/', '', $value) ?? $value);
+            }
+
+            // Strip exactly one layer of surrounding YAML quoting
+            // (`title: "…"` / `title: '…'`): the value itself, not its
+            // quote delimiters, must reach the database. Only a paired
+            // quote around the WHOLE value counts — quotes inside the
+            // value and an unpaired leading/trailing quote stay as is.
+            if (strlen($value) >= 2
+                && ($value[0] === '"' || $value[0] === "'")
+                && $value[0] === substr($value, -1)
+            ) {
+                $value = substr($value, 1, -1);
             }
 
             $map[$key] = $value;
