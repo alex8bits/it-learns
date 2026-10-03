@@ -1,5 +1,5 @@
 ---
-course: lessons
+course: mysql
 level: Основы
 level_slug: basics
 lesson: 1

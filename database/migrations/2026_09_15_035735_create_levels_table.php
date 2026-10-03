@@ -20,11 +20,12 @@ return new class extends Migration
             // without their parent course, so deleting a course removes
             // its level tree in one statement (Stage 6 design decision).
             $table->foreignId('course_id')->constrained()->cascadeOnDelete();
-            $table->string('level', 32);
             $table->unsignedInteger('order');
-            $table->string('title')->nullable();
+            // A level is a named section of a course, not a difficulty
+            // tier: `title` is the required per-course unique identity.
+            $table->string('title');
 
-            $table->unique(['course_id', 'level']);
+            $table->unique(['course_id', 'title']);
         });
     }
 

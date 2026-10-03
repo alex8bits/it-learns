@@ -1,5 +1,5 @@
 ---
-course: lessons
+course: mysql
 level: Начинающий
 level_slug: beginner
 lesson: 1

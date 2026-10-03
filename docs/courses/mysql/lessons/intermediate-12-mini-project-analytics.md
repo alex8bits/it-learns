@@ -1,5 +1,5 @@
 ---
-course: lessons
+course: mysql
 level: Средний
 level_slug: intermediate
 lesson: 12

@@ -1,5 +1,5 @@
 ---
-course: lessons
+course: mysql
 level: Продвинутый
 level_slug: advanced
 lesson: 11
