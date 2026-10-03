@@ -18,21 +18,26 @@ use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
- * Seeds the MySQL course from the lesson markdown files in `docs/mysql/`
- * (the file format is the machine-readable contract of
- * docs/mysql-lesson-rule.md §5). The `## Ранее в курсе` section (the
- * covered-lessons map for the author/bot, docs/mysql-lesson-rule.md §1)
- * is never transferred to `lessons.material`, and a material opening
- * with a `### Ранее в курсе` subsection is rejected as the retired
- * format. Re-running is append-only: the course and its four fixed
- * levels are ensured via firstOrCreate, a lesson whose slug already
- * exists is skipped as a whole (never updated, never duplicated), and
- * only missing lessons are created.
+ * Seeds the MySQL course from the lesson markdown files in
+ * `docs/courses/mysql/lessons/` (the file format is the
+ * machine-readable contract of docs/mysql-lesson-rule.md §5). The
+ * `## Ранее в курсе` section (the covered-lessons map for the
+ * author/bot, docs/mysql-lesson-rule.md §1) is never transferred to
+ * `lessons.material`, and a material opening with a `### Ранее в курсе`
+ * subsection is rejected as the retired format. Re-running is
+ * append-only: the course and its four fixed levels are ensured via
+ * firstOrCreate, a lesson whose slug already exists is skipped as a
+ * whole (never updated, never duplicated), and only missing lessons
+ * are created. Content-format normalization happens only at parse
+ * time in `splitFrontmatter()` (surrounding YAML quotes are stripped
+ * there); a format fix means editing the markdown sources and/or the
+ * parser plus re-seeding — never a data migration, migrations are
+ * schema-only.
  */
 class MysqlCourseSeeder extends Seeder
 {
     /**
-     * Fixed course levels (docs/mysql.md plan): frontmatter `level_slug`
+     * Fixed course levels (docs/courses/mysql/plan.md plan): frontmatter `level_slug`
      * → level title and order inside the course.
      *
      * @var array<string, array{title: string, order: int}>
@@ -64,9 +69,9 @@ class MysqlCourseSeeder extends Seeder
      * Directory holding the lesson markdown files: a path relative to
      * the project root or an absolute one. Public so tests can point
      * the seeder at a fixture directory instead of the real
-     * `docs/mysql/`.
+     * `docs/courses/mysql/lessons/`.
      */
-    public string $lessonsDirectory = 'docs/mysql';
+    public string $lessonsDirectory = 'docs/courses/mysql/lessons';
 
     public function run(): void
     {
@@ -424,7 +429,7 @@ class MysqlCourseSeeder extends Seeder
      *
      * Lower-level headings (`###` … `######`) are legitimate subsection
      * titles within the `## Материал` section (see e.g.
-     * `docs/mysql/basics-01-what-is-a-database.md`) and MUST be
+     * `docs/courses/mysql/lessons/basics-01-what-is-a-database.md`) and MUST be
      * preserved — they are part of the lesson content, not stray
      * section markers.
      */
