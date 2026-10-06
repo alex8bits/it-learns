@@ -8,6 +8,8 @@ import { computed, ref, watch } from 'vue';
 const props = defineProps({
     lesson: { type: Object, required: true },
     course: { type: Object, required: true },
+    // Уровень курса {id, title, order} — метаданные для строки над заголовком.
+    level: { type: Object, required: false, default: null },
     // answers: map task_id => { option_id, is_correct } — только ответы
     // текущего пользователя; на сервере остаётся «эталонная» корректность
     // вариантов, сюда приезжает лишь факт «верно/неверно» его выбора.
@@ -503,6 +505,9 @@ watch(
             </Link>
 
             <section class="mt-4 bg-white rounded-lg shadow border border-gray-200 p-6">
+                <p v-if="level" class="text-sm text-gray-500 mb-1">
+                    {{ level.title }} · Урок {{ lesson.order }}
+                </p>
                 <div class="flex items-center justify-between gap-4">
                     <h1 class="text-3xl font-bold text-gray-900">{{ lesson.title }}</h1>
                     <span

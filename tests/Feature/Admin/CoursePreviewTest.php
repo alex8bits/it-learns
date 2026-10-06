@@ -103,6 +103,11 @@ class CoursePreviewTest extends TestCase
                 && str_contains($html, $practiceTask->statement))
             ->missing('practiceTasks.0.seed_sql')
             ->where('course.id', $course->id)
+            // Уровень и порядковый номер урока — тот же контракт, что в
+            // пользовательском флоу (заголовок «Уровень · Урок N»).
+            ->where('level.title', $level->title)
+            ->where('level.order', $level->order)
+            ->where('lesson.order', $lesson->order)
             ->where('answers', [])
             ->where('passedPracticeTaskIds', [])
             // Зеркальные пороги: min(K, N) по ВСЕМ задачам preview —

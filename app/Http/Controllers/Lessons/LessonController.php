@@ -68,6 +68,7 @@ class LessonController extends Controller
                 'id' => $lesson->id,
                 'slug' => $lesson->slug,
                 'title' => $lesson->title,
+                'order' => $lesson->order,
                 'material_html' => $renderer->render($lesson->id, $lesson->material),
                 'theoryTasks' => $lesson->theoryTasks
                     ->map(fn (TheoryTask $task): array => [
@@ -100,6 +101,13 @@ class LessonController extends Controller
                 'id' => $course->id,
                 'slug' => $course->slug,
                 'title' => $course->title,
+            ],
+            // Уровень урока для заголовка «Уровень · Урок N» на фронте:
+            // уже загружен eager-load'ом выше — без доп. запросов.
+            'level' => [
+                'id' => $lesson->level->id,
+                'title' => $lesson->level->title,
+                'order' => $lesson->level->order,
             ],
             'answers' => $userAnswers,
             'lessonStatus' => $this->lessonStatus($user->id, $lesson),

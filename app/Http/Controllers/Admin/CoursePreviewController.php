@@ -88,6 +88,7 @@ class CoursePreviewController extends Controller
                 'id' => $lesson->id,
                 'slug' => $lesson->slug,
                 'title' => $lesson->title,
+                'order' => $lesson->order,
                 'material' => $lesson->material,
                 'material_html' => $renderer->render($lesson->id, $lesson->material),
                 'is_published' => $lesson->is_published,
@@ -121,6 +122,14 @@ class CoursePreviewController extends Controller
                 'id' => $course->id,
                 'slug' => $course->slug,
                 'title' => $course->title,
+            ],
+            // Уровень урока — тот же контракт, что в LessonController::show
+            // (загружен через $lesson->load('level') выше): фронт строит
+            // заголовок «Уровень · Урок N».
+            'level' => [
+                'id' => $lesson->level->id,
+                'title' => $lesson->level->title,
+                'order' => $lesson->level->order,
             ],
             'answers' => [],
             'lessonStatus' => null,

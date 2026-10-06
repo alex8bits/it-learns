@@ -79,6 +79,10 @@ class LessonShowTest extends TestCase
             // correct_option НЕ содержит is_correct/error_text (только {id, text}).
             ->missing('lesson.theoryTasks.0.correct_option.is_correct')
             ->missing('lesson.theoryTasks.0.correct_option.error_text')
+            // Уровень и порядковый номер урока — заголовок «Уровень · Урок N».
+            ->where('level.title', $level->title)
+            ->where('level.order', $level->order)
+            ->where('lesson.order', $lesson->order)
             // Required window.
             ->where('requiredTheoryCount', 3)
             ->where('answers', [
