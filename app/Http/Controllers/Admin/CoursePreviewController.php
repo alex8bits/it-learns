@@ -13,6 +13,7 @@ use App\Models\TheoryTask;
 use App\Models\TheoryTaskOption;
 use App\Services\Courses\NextLessonResolver;
 use App\Services\Lessons\MaterialRenderer;
+use App\Services\Lessons\PracticeStatementRenderer;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -68,7 +69,7 @@ class CoursePreviewController extends Controller
      * except everything user-specific is empty and `previewMode`
      * switches the Vue page to read-only rendering.
      */
-    public function lesson(Request $request, Course $course, Lesson $lesson, MaterialRenderer $renderer): Response
+    public function lesson(Request $request, Course $course, Lesson $lesson, MaterialRenderer $renderer, PracticeStatementRenderer $statementRenderer): Response
     {
         $lesson->load('level');
         abort_unless($lesson->level->course_id === $course->id, 404);
@@ -127,14 +128,18 @@ class CoursePreviewController extends Controller
             'practiceTasks' => $lesson->practiceTasks
                 ->map(fn (PracticeTask $task): array => [
                     'id' => $task->id,
-                    'statement' => $task->statement,
+                    // The statement leaves the server as rendered
+                    // markdown HTML — the same shape as
+                    // LessonController::show, which this preview
+                    // mirrors.
+                    'statement_html' => $statementRenderer->render($task->id, $task->statement),
                     'expected_result_text' => $task->expected_result_text,
                     'order' => $task->order,
                     'is_published' => $task->is_published,
                     // Manual mapping is the practice-spoiler guard (the
                     // mirror of the options guard above): only
-                    // {id, statement, expected_result_text, order} leave
-                    // the server, never seed_sql / expected_hash /
+                    // {id, statement_html, expected_result_text, order}
+                    // leave the server, never seed_sql / expected_hash /
                     // expected_rows.
                 ])
                 ->values()

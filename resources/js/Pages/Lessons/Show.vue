@@ -1,6 +1,7 @@
 <script setup>
 import Button from '../../Components/Button.vue';
 import PracticeTerminal from '../../Components/PracticeTerminal.vue';
+import { clearPracticeDraft, loadPracticeDraft, savePracticeDraft } from '../../utils/practiceDrafts';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 
@@ -157,7 +158,7 @@ const solvedPracticeReview = computed(() =>
         .map((task) => ({
             id: task.id,
             order: task.order,
-            statement: task.statement,
+            statement_html: task.statement_html,
             code: props.solvedPracticeTasks[task.id].code,
             result: { rows: props.solvedPracticeTasks[task.id].expected_rows },
         })),
@@ -187,7 +188,37 @@ const submit = () => {
     form.post(`/theory-tasks/${currentTask.value.id}/answer`);
 };
 
-const practiceForm = useForm({ code: '' });
+// usePage поднят выше формы: id пользователя нужен для ключей черновиков
+// уже при начальной гидратации редактора (премиум-блок ниже использует
+// тот же page, второго объявления нет).
+const page = usePage();
+
+// Гость на странице урока невозможен (auth-роут) — auth.user всегда есть;
+// ?? null — защита от отсутствия пропса.
+const practiceUserId = () => page.props.auth.user?.id ?? null;
+
+// Черновик SQL — зеркальная копия редактора в localStorage (ключ
+// `practice-draft:{userId}:{taskId}`): переживает F5 и раундтрип
+// «истёкшая сессия → логин → возврат на урок». Preview в storage
+// не пишет. Начальное значение — гидратация черновиком текущего
+// задания (computed currentPracticeTask выше уже доступен).
+const practiceForm = useForm({
+    code: props.previewMode ? '' : loadPracticeDraft(practiceUserId(), currentPracticeTask.value?.id),
+});
+
+// Синхронное зеркало редактора (без debounce: запись суб-миллисекундная,
+// а таймер добавил бы класс гонок «незафлуженный таймер потерялся при
+// размонтировании»). Null-части ключа — no-op внутри модуля.
+watch(
+    () => practiceForm.code,
+    (code) => {
+        if (props.previewMode) {
+            return;
+        }
+
+        savePracticeDraft(practiceUserId(), currentPracticeTask.value?.id, code);
+    },
+);
 
 // Клиентский журнал команд терминала: накапливается между попытками в
 // рамках одного задания, очищается при смене currentPracticeTask
@@ -202,6 +233,13 @@ const submitPractice = () => {
     // очищен ниже в watcher'е practiceFeedback, чтобы запись в истории
     // гарантированно содержала именно тот SQL, который ученик отправил.
     pendingPracticeCode.value = practiceForm.code;
+    // Детерминированная точка сохранения до ухода POST: watcher-флеши Vue
+    // батчатся, а сценарий истёкшей сессии требует, чтобы текст уже был
+    // в storage к моменту редиректа на /login (preview не сабмитит,
+    // guard — страховка симметрично остальным точкам входа в storage).
+    if (!props.previewMode) {
+        savePracticeDraft(practiceUserId(), currentPracticeTask.value?.id, practiceForm.code);
+    }
     // POST → 303 back: страница перечитает passedPracticeTaskIds и flash
     // practice_feedback на сервере (тот же паттерн, что и quiz-форма).
     practiceForm.post(`/practice-tasks/${currentPracticeTask.value.id}/submit`);
@@ -243,13 +281,17 @@ watch(
             });
         }
         practiceForm.code = '';
+        // Черновик очищаем зеркально форме — по task_id задания, которое
+        // пытались (feedback.task_id): в момент флеша watcher'а указатель
+        // currentPracticeTask уже сместился на следующее задание. Preview
+        // не сабмитит — guard не нужен.
+        clearPracticeDraft(practiceUserId(), feedback.task_id);
     },
 );
 
 // ---------- Премиум ИИ (Этап 8) ----------
 
-const page = usePage();
-
+// page объявлен выше, у practiceForm (используется и здесь, и в черновиках).
 // Гость на странице урока невозможен (auth-роут) — auth.user всегда есть.
 const isPremium = computed(() => page.props.auth.user?.is_premium === true);
 
@@ -418,6 +460,12 @@ watch(
         // к предыдущему заданию и в новом контексте будет вводить
         // в заблуждение.
         practiceHistory.value = [];
+        // Редактор гидратируется черновиком нового задания (пустым, если
+        // его ещё не набирали); save-watcher тут же зеркально перепишет
+        // storage тем же значением — идемпотентно.
+        if (!props.previewMode) {
+            practiceForm.code = loadPracticeDraft(practiceUserId(), currentPracticeTask.value?.id);
+        }
     },
 );
 </script>
@@ -736,7 +784,12 @@ watch(
                         <p class="text-sm font-medium text-green-700 mb-2">
                             Задание {{ task.order }} решено ✓
                         </p>
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ task.statement }}</h3>
+                        <!-- Формулировка рендерится на сервере
+                             (PracticeStatementRenderer); v-html вставляет
+                             доверенный HTML (HTMLPurifier-санитизированный
+                             на бэкенде). Стилизация — через .practice-statement
+                             (resources/css/app.css). -->
+                        <div class="practice-statement text-gray-900 mb-4" v-html="task.statement_html"></div>
 
                         <PracticeTerminal
                             :entries="[{
@@ -780,7 +833,7 @@ watch(
                     class="bg-white rounded-lg shadow border border-gray-200 p-6"
                 >
                     <p class="text-sm text-gray-500 mb-2">Задание {{ currentPracticeTask.order }}</p>
-                    <h3 class="text-lg font-semibold text-gray-900 mb-2">{{ currentPracticeTask.statement }}</h3>
+                    <div class="practice-statement text-gray-900 mb-2" v-html="currentPracticeTask.statement_html"></div>
                     <p class="text-sm text-gray-600 mb-4">
                         Ожидаемый результат: {{ currentPracticeTask.expected_result_text }}
                     </p>
@@ -855,7 +908,7 @@ watch(
                                 Черновик
                             </span>
                         </div>
-                        <h3 class="text-lg font-semibold text-gray-900 mb-2">{{ task.statement }}</h3>
+                        <div class="practice-statement text-gray-900 mb-2" v-html="task.statement_html"></div>
                         <p class="text-sm text-gray-600">
                             Ожидаемый результат: {{ task.expected_result_text }}
                         </p>

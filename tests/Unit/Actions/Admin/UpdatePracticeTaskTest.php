@@ -11,6 +11,7 @@ use App\Enums\UserRole;
 use App\Models\AdminAuditLog;
 use App\Models\PracticeTask;
 use App\Models\User;
+use App\Services\Lessons\PracticeStatementRenderer;
 use App\Services\Practice\CanonicalResultSerializer;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -83,6 +84,28 @@ class UpdatePracticeTaskTest extends TestCase
             'runtime' => 'sqlite',
             'statement_preview' => 'Новая формулировка',
         ], $log->meta);
+    }
+
+    public function test_invalidation_drops_the_cached_statement_html(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $task = PracticeTask::factory()->create();
+
+        // Любая правка задачи сбрасывает кэш рендера формулировки —
+        // зеркало UpdateLesson → MaterialRenderer (PracticeStatementRenderer).
+        $this->mock(PracticeStatementRenderer::class)
+            ->shouldReceive('invalidate')
+            ->once()
+            ->with($task->id);
+
+        app(UpdatePracticeTask::class)->execute($task, [
+            'statement' => 'Обновлённая формулировка',
+        ], $admin);
+
+        $this->assertDatabaseHas('practice_tasks', [
+            'id' => $task->id,
+            'statement' => 'Обновлённая формулировка',
+        ]);
     }
 
     public function test_runtime_is_updated_and_audited(): void

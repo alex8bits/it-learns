@@ -18,6 +18,7 @@ use App\Models\UserLessonProgress;
 use App\Models\UserTheoryTaskAnswer;
 use App\Services\Courses\NextLessonResolver;
 use App\Services\Lessons\MaterialRenderer;
+use App\Services\Lessons\PracticeStatementRenderer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
@@ -33,7 +34,7 @@ use Inertia\Response;
  */
 class LessonController extends Controller
 {
-    public function show(Request $request, string $slug, MaterialRenderer $renderer): Response
+    public function show(Request $request, string $slug, MaterialRenderer $renderer, PracticeStatementRenderer $statementRenderer): Response
     {
         $lesson = Lesson::query()
             ->published()
@@ -106,13 +107,17 @@ class LessonController extends Controller
             'practiceTasks' => $lesson->practiceTasks
                 ->map(fn (PracticeTask $task): array => [
                     'id' => $task->id,
-                    'statement' => $task->statement,
+                    // The statement is authored markdown — the page
+                    // embeds it via v-html, so it leaves the server as
+                    // rendered+sanitised HTML only (the mirror of
+                    // `material_html` above).
+                    'statement_html' => $statementRenderer->render($task->id, $task->statement),
                     'expected_result_text' => $task->expected_result_text,
                     'order' => $task->order,
                     // Manual mapping is the practice-spoiler guard (the
                     // mirror of the options guard above): only
-                    // {id, statement, expected_result_text, order} leave
-                    // the server, never seed_sql / expected_hash /
+                    // {id, statement_html, expected_result_text, order}
+                    // leave the server, never seed_sql / expected_hash /
                     // expected_rows (design Risk «Spoiler-гвард»).
                 ])
                 ->values()

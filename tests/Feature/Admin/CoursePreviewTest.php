@@ -97,7 +97,10 @@ class CoursePreviewTest extends TestCase
             // null — mirrors LessonController::show shape (where the field
             // is null unless the user solved the task).
             ->where('lesson.theoryTasks.0.correct_option', null)
-            ->where('practiceTasks.0.statement', $practiceTask->statement)
+            ->where('practiceTasks.0.statement_html', fn ($html): bool => is_string($html)
+                && $html !== ''
+                && str_contains($html, '<p>')
+                && str_contains($html, $practiceTask->statement))
             ->missing('practiceTasks.0.seed_sql')
             ->where('course.id', $course->id)
             ->where('answers', [])

@@ -8,6 +8,7 @@ use App\Enums\AdminAuditAction;
 use App\Models\PracticeTask;
 use App\Models\User;
 use App\Services\Admin\AdminAuditLogger;
+use App\Services\Lessons\PracticeStatementRenderer;
 use App\Services\Practice\CanonicalResultSerializer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -17,6 +18,7 @@ class UpdatePracticeTask
     public function __construct(
         private CanonicalResultSerializer $serializer,
         private AdminAuditLogger $audit,
+        private PracticeStatementRenderer $statementRenderer,
     ) {}
 
     /**
@@ -72,6 +74,12 @@ class UpdatePracticeTask
             }
 
             $task->fill($payload)->save();
+
+            // Любая правка задачи (или просто save() без изменений —
+            // дёшево и устраняет класс ошибок «забыл сбросить кэш»)
+            // требует свежего HTML-рендера формулировки на следующем
+            // чтении (зеркало UpdateLesson → MaterialRenderer).
+            $this->statementRenderer->invalidate($task->id);
 
             $this->audit->log(AdminAuditAction::PracticeTaskUpdated, $task, [
                 'lesson_id' => $task->lesson_id,

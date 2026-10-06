@@ -4,43 +4,29 @@ declare(strict_types=1);
 
 namespace App\Services\Lessons;
 
-use HTMLPurifier;
-use HTMLPurifier_Config;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
-use League\CommonMark\Environment\Environment;
-use League\CommonMark\Extension\Autolink\AutolinkExtension;
-use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
-use League\CommonMark\Extension\Table\TableExtension;
-use League\CommonMark\MarkdownConverter;
 
 /**
  * Renders lesson material markdown to HTML on the server.
  *
  * Lesson `material` is the canonical markdown source authored in
- * docs/mysql/*.md and stored verbatim in `lessons.material`. We do
- * not store the rendered HTML next to the source (no denormalisation);
- * instead the conversion happens here and the result is cached by
- * lesson id under a forever cache, invalidated by UpdateLesson on
- * any material/title change.
- *
- * The rendered HTML is sanitised through HTMLPurifier with its
- * default config before being returned to the caller: CommonMark
- * render leaves raw HTML from the markdown source intact (the
- * `html_input` default is `safe` only at the schema level — actual
- * filtering here is a defense-in-depth gate before `v-html` on the
- * client, see resources/js/Pages/Lessons/Show.vue «Материал»).
- * HTMLPurifier strips `<script>`, `<iframe>`, javascript: URLs,
- * inline event handlers (`onclick`, `onerror`, ...) and similar
- * XSS vectors even if a future admin preview path or content
- * import ever manages to inject raw HTML into `lessons.material`.
- * Extensions are limited to the baseline CommonMark + GFM tables +
- * autolinks.
+ * docs/courses/mysql/lessons/*.md and stored verbatim in
+ * `lessons.material`. We do not store the rendered HTML next to the
+ * source (no denormalisation); instead the conversion happens here
+ * (through the shared sanitising MarkdownHtmlRenderer) and the result
+ * is cached by lesson id under a forever cache, invalidated by
+ * UpdateLesson on any material/title change. The sanitisation gate
+ * before `v-html` on the client is documented in
+ * {@see MarkdownHtmlRenderer}.
  */
 class MaterialRenderer
 {
     private const CACHE_KEY_PREFIX = 'lesson:material_html:';
 
-    public function __construct(private CacheRepository $cache) {}
+    public function __construct(
+        private CacheRepository $cache,
+        private MarkdownHtmlRenderer $markdown,
+    ) {}
 
     /**
      * Render lesson material to HTML. Returns null when material is
@@ -69,9 +55,7 @@ class MaterialRenderer
             return $cached;
         }
 
-        $converter = new MarkdownConverter($this->buildEnvironment());
-        $rawHtml = (string) $converter->convert($material);
-        $rendered = (string) $this->purifier()->purify($rawHtml);
+        $rendered = $this->markdown->render($material);
 
         if (trim($rendered) === '') {
             // Defense-in-depth: sanitizer stripped the whole markdown
@@ -93,28 +77,5 @@ class MaterialRenderer
     public function invalidate(int $lessonId): void
     {
         $this->cache->forget(self::CACHE_KEY_PREFIX.$lessonId);
-    }
-
-    private function buildEnvironment(): Environment
-    {
-        $environment = new Environment;
-        $environment->addExtension(new CommonMarkCoreExtension);
-        $environment->addExtension(new TableExtension);
-        $environment->addExtension(new AutolinkExtension);
-
-        return $environment;
-    }
-
-    /**
-     * Build a fresh HTMLPurifier instance on every cache miss. The
-     * configuration is small and the constructor is cheap, and we
-     * never want to share a long-lived purifier across requests
-     * (HTMLPurifier keeps request-scoped state in some attributes).
-     */
-    private function purifier(): HTMLPurifier
-    {
-        $config = HTMLPurifier_Config::createDefault();
-
-        return new HTMLPurifier($config);
     }
 }

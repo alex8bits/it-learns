@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\Lessons;
 
+use App\Services\Lessons\MarkdownHtmlRenderer;
 use App\Services\Lessons\MaterialRenderer;
 use Illuminate\Support\Facades\Cache;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -27,8 +28,10 @@ class MaterialRendererTest extends TestCase
         parent::setUp();
 
         // Pure Unit: подсовываем array-store, чтобы render() писал в
-        // process-local массив и не зависел от БД/Redis.
-        $this->renderer = new MaterialRenderer(Cache::store('array'));
+        // process-local массив и не зависел от БД/Redis. Конвертацию
+        // делегирует в реальный MarkdownHtmlRenderer (без моков —
+        // тестируем сквозной контракт до санитизированного HTML).
+        $this->renderer = new MaterialRenderer(Cache::store('array'), new MarkdownHtmlRenderer);
     }
 
     public function test_render_returns_null_when_material_is_null(): void
