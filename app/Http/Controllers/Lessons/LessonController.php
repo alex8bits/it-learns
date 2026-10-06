@@ -10,6 +10,7 @@ use App\Enums\PracticeAttemptStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Lesson;
+use App\Models\Level;
 use App\Models\PracticeTask;
 use App\Models\PracticeTaskSubmission;
 use App\Models\TheoryTask;
@@ -156,6 +157,11 @@ class LessonController extends Controller
             'nextLesson' => ($next = $this->nextLesson($course, $lesson)) !== null
                 ? ['id' => $next->id, 'slug' => $next->slug, 'title' => $next->title]
                 : null,
+            // Сайдбар «все уроки курса»: уровни с опубликованными уроками в
+            // каноническом порядке + статус пользователя на каждом уроке
+            // ('InProgress' | 'Completed' | null — не начат). Черновики в список
+            // не попадают: для пользователя их не существует (семантика 404 роута).
+            'courseLevels' => $this->courseLevels($user->id, $course),
         ]);
     }
 
@@ -297,5 +303,61 @@ class LessonController extends Controller
     private function nextLesson(Course $course, Lesson $lesson): ?Lesson
     {
         return app(NextLessonResolver::class)($course, $lesson, publishedOnly: true);
+    }
+
+    /**
+     * Все опубликованные уроки курса, сгруппированные по уровням в
+     * каноническом порядке (level.order, lesson.order — сортировка живёт
+     * в самих relations), каждый — с прогресс-статусом пользователя для
+     * бейджа сайдбара. «Не начат» — отсутствие строки прогресса: status
+     * остаётся null. Два запроса: дерево (2 SQL) + одна карта статусов.
+     *
+     * @return array<int, array{id: int, title: string, order: int, lessons: array<int, array{id: int, slug: string, title: string, order: int, is_published: bool, status: string|null}>}>
+     */
+    private function courseLevels(int $userId, Course $course): array
+    {
+        $course->load([
+            'levels' => fn ($levels) => $levels->with([
+                'lessons' => fn ($lessons) => $lessons->published(),
+            ]),
+        ]);
+
+        $lessonIds = $course->levels
+            ->flatMap(fn ($level) => $level->lessons->pluck('id'))
+            ->values();
+
+        $statuses = UserLessonProgress::query()
+            ->where('user_id', $userId)
+            ->whereIn('lesson_id', $lessonIds)
+            ->pluck('status', 'lesson_id');
+
+        return $course->levels
+            ->map(fn (Level $level): array => [
+                'id' => $level->id,
+                'title' => $level->title,
+                'order' => $level->order,
+                'lessons' => $level->lessons
+                    ->map(function (Lesson $lesson) use ($statuses): array {
+                        /** @var LessonProgressStatus|null $status */
+                        $status = $statuses->get($lesson->id);
+
+                        return [
+                            'id' => $lesson->id,
+                            'slug' => $lesson->slug,
+                            'title' => $lesson->title,
+                            'order' => $lesson->order,
+                            // В этом флоу всегда true (published-only); поле
+                            // присутствует, чтобы фронт читал оба флоу
+                            // одинаково (в preview оно честное).
+                            'is_published' => $lesson->is_published,
+                            // Отсутствующий id в карте = «не начат» = null.
+                            'status' => $status?->value,
+                        ];
+                    })
+                    ->values()
+                    ->all(),
+            ])
+            ->values()
+            ->all();
     }
 }

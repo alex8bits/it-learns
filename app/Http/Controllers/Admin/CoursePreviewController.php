@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Courses\CourseController;
 use App\Models\Course;
 use App\Models\Lesson;
+use App\Models\Level;
 use App\Models\PracticeTask;
 use App\Models\TheoryTask;
 use App\Models\TheoryTaskOption;
@@ -179,7 +180,49 @@ class CoursePreviewController extends Controller
             'nextLesson' => ($next = app(NextLessonResolver::class)($course, $lesson, publishedOnly: false)) !== null
                 ? ['id' => $next->id, 'slug' => $next->slug, 'title' => $next->title]
                 : null,
+            // Сайдбар «все уроки курса» в preview: уровни со ВСЕМИ уроками
+            // (включая черновики, is_published честный), статусы всегда null —
+            // тот же контракт, что в LessonController::show, но без прогресса.
+            'courseLevels' => $this->courseLevels($course),
             'previewMode' => true,
         ]);
+    }
+
+    /**
+     * Все уроки курса (включая черновики — preview показывает то, что
+     * видит автор), сгруппированные по уровням в каноническом порядке
+     * (level.order, lesson.order). Прогресс не читается: preview read-only,
+     * статусы всегда null — зеркало заглушки `lessonStatus: null`.
+     *
+     * @return array<int, array{id: int, title: string, order: int, lessons: array<int, array{id: int, slug: string, title: string, order: int, is_published: bool, status: string|null}>}>
+     */
+    private function courseLevels(Course $course): array
+    {
+        $course->load([
+            'levels' => fn ($levels) => $levels->ordered()->with([
+                'lessons' => fn ($lessons) => $lessons->ordered(),
+            ]),
+        ]);
+
+        return $course->levels
+            ->map(fn (Level $level): array => [
+                'id' => $level->id,
+                'title' => $level->title,
+                'order' => $level->order,
+                'lessons' => $level->lessons
+                    ->map(fn (Lesson $lesson): array => [
+                        'id' => $lesson->id,
+                        'slug' => $lesson->slug,
+                        'title' => $lesson->title,
+                        'order' => $lesson->order,
+                        // Честный флаг: фронт рисует пилюлю «Черновик».
+                        'is_published' => $lesson->is_published,
+                        'status' => null,
+                    ])
+                    ->values()
+                    ->all(),
+            ])
+            ->values()
+            ->all();
     }
 }

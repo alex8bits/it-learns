@@ -11,6 +11,7 @@ use App\Models\PracticeTask;
 use App\Models\PracticeTaskSubmission;
 use App\Models\TheoryTask;
 use App\Models\User;
+use App\Models\UserLessonProgress;
 use App\Models\UserTheoryTaskAnswer;
 use Tests\TestCase;
 
@@ -207,5 +208,40 @@ class LessonShowTest extends TestCase
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->where('lesson.material_html', null));
+    }
+
+    public function test_course_levels_prop_lists_published_lessons_with_statuses(): void
+    {
+        $user = User::factory()->create();
+        $course = Course::factory()->published()->create();
+        $level1 = Level::factory()->for($course)->create(['order' => 1]);
+        $level2 = Level::factory()->for($course)->create(['order' => 2]);
+
+        $lesson1 = Lesson::factory()->for($level1)->create(['order' => 1]); // Completed
+        $lesson2 = Lesson::factory()->for($level1)->create(['order' => 2]); // InProgress
+        $lesson3 = Lesson::factory()->for($level1)->create(['order' => 3]); // не начат
+        Lesson::factory()->unpublished()->for($level1)->create(['order' => 4]); // черновик — мимо списка
+        $lesson4 = Lesson::factory()->for($level2)->create(['order' => 1]); // не начат
+
+        UserLessonProgress::factory()->for($user)->for($lesson1)->completed()->create();
+        UserLessonProgress::factory()->for($user)->for($lesson2)->create(); // default InProgress
+
+        $response = $this->actingAs($user)->get(route('lessons.show', $lesson1->slug));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            ->where('courseLevels.0.id', $level1->id)
+            ->where('courseLevels.0.title', $level1->title)
+            ->has('courseLevels.0.lessons', 3)
+            ->where('courseLevels.0.lessons.0.id', $lesson1->id)
+            ->where('courseLevels.0.lessons.0.status', 'Completed')
+            ->where('courseLevels.0.lessons.1.id', $lesson2->id)
+            ->where('courseLevels.0.lessons.1.status', 'InProgress')
+            ->where('courseLevels.0.lessons.2.id', $lesson3->id)
+            ->where('courseLevels.0.lessons.2.status', null)
+            ->where('courseLevels.1.id', $level2->id)
+            ->where('courseLevels.1.lessons.0.id', $lesson4->id)
+            ->where('courseLevels.1.lessons.0.status', null));
     }
 }

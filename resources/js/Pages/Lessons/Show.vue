@@ -52,6 +52,11 @@ const props = defineProps({
     // Следующий урок курса ({id, slug, title}) или null, если текущий —
     // последний (кнопка ведёт на страницу курса).
     nextLesson: { type: Object, required: false, default: null },
+    // Сайдбар «все уроки курса»: уровни с уроками в каноническом порядке
+    // (level.order, lesson.order). status — бейдж прохождения
+    // ('InProgress' | 'Completed' | null; null — не начат, бейджа нет;
+    // в preview всегда null, а is_published честный — для пилюли «Черновик»).
+    courseLevels: { type: Array, required: false, default: () => [] },
 });
 
 const isAnsweredCorrectly = (taskId) => props.answers[taskId]?.is_correct === true;
@@ -442,6 +447,12 @@ const nextLessonHref = computed(() => {
 });
 const nextLessonLabel = computed(() => (props.nextLesson === null ? 'К списку уроков курса' : 'Перейти к следующему уроку'));
 
+// Ссылка урока в сайдбаре: те же конвенции, что и nextLessonHref —
+// пользовательский флоу по slug, preview по id.
+const sidebarLessonHref = (item) => (props.previewMode
+    ? `/admin/courses/${props.course.id}/preview/lessons/${item.id}`
+    : `/lessons/${item.slug}`);
+
 // Автоперехода THEORY → PRACTICE больше нет — выбор всегда за пользователем
 // (кнопка «Перейти к практике»). Опциональную карточку закрываем, когда
 // указатель сместился на следующий вопрос/задание (верный ответ):
@@ -488,438 +499,493 @@ watch(
             </div>
         </header>
 
-        <main class="max-w-4xl mx-auto px-4 py-10">
-            <div
-                v-if="previewMode"
-                class="mb-6 rounded bg-yellow-50 border border-yellow-300 px-4 py-3 text-sm text-yellow-800"
-            >
-                <span class="font-medium">Режим предпросмотра (глазами пользователя)</span>
-                — действия отключены, прогресс не записывается.
-            </div>
-
-            <Link
-                :href="previewMode ? `/admin/courses/${course.id}/preview` : `/courses/${course.slug}`"
-                class="text-sm text-blue-600 hover:underline"
-            >
-                ← {{ course.title }}
-            </Link>
-
-            <section class="mt-4 bg-white rounded-lg shadow border border-gray-200 p-6">
-                <p v-if="level" class="text-sm text-gray-500 mb-1">
-                    {{ level.title }} · Урок {{ lesson.order }}
-                </p>
-                <div class="flex items-center justify-between gap-4">
-                    <h1 class="text-3xl font-bold text-gray-900">{{ lesson.title }}</h1>
-                    <span
-                        v-if="previewMode && lesson.is_published === false"
-                        class="shrink-0 px-3 py-1 bg-gray-100 text-gray-600 border border-gray-200 rounded-full text-xs"
-                    >
-                        Черновик
-                    </span>
-                    <span
-                        v-if="lessonStatus === 'Completed'"
-                        class="shrink-0 px-3 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs"
-                    >
-                        Урок пройден
-                    </span>
+        <div class="flex">
+            <!-- Сайдбар: все уроки курса по уровням; на <lg скрыт — переключение
+                 на мобильных через back-link на страницу курса и кнопку
+                 «следующий урок» (осознанное ограничение дизайна). -->
+            <aside class="hidden lg:block w-64 shrink-0 border-r border-gray-200 bg-white">
+                <div class="sticky top-0 max-h-screen overflow-y-auto px-4 py-6">
+                    <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        {{ course.title }}
+                    </p>
+                    <div v-for="group in courseLevels" :key="group.id" class="mb-5">
+                        <p class="mb-2 text-sm font-medium text-gray-500">{{ group.title }}</p>
+                        <ul class="space-y-1">
+                            <li v-for="item in group.lessons" :key="item.id">
+                                <Link
+                                    :href="sidebarLessonHref(item)"
+                                    class="flex items-center gap-2 rounded px-2 py-1.5 text-sm"
+                                    :class="item.id === lesson.id
+                                        ? 'bg-blue-50 font-medium text-blue-700'
+                                        : 'text-gray-700 hover:bg-gray-100'"
+                                >
+                                    <span
+                                        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs"
+                                        :class="item.id === lesson.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'"
+                                    >
+                                        {{ item.order }}
+                                    </span>
+                                    <span class="min-w-0 flex-1 truncate">{{ item.title }}</span>
+                                    <span
+                                        v-if="item.status === 'Completed'"
+                                        class="shrink-0 px-2 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded text-xs"
+                                    >
+                                        Пройден
+                                    </span>
+                                    <span
+                                        v-else-if="item.status === 'InProgress'"
+                                        class="shrink-0 px-2 py-0.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded text-xs"
+                                    >
+                                        В процессе
+                                    </span>
+                                    <span
+                                        v-else-if="previewMode && item.is_published === false"
+                                        class="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded text-xs"
+                                    >
+                                        Черновик
+                                    </span>
+                                </Link>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
-            </section>
+            </aside>
 
-            <!-- Бар стадий: поэтапный флоу «материал → теория → практика»
-                 (concept.md §3.3). Таб «Материал» доступен всегда; в
-                 обычном режиме теория и практика блокируются, пока
-                 предыдущая стадия не пройдена; в preview гейтинга нет. -->
-            <div class="mt-6 flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    class="px-4 py-2 rounded border text-sm font-medium"
-                    :class="activeStage === STAGES.MATERIAL ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
-                    @click="goToStage(STAGES.MATERIAL)"
-                >
-                    1. Изучение
-                </button>
-                <button
-                    v-if="previewMode || hasTheoryTasks"
-                    type="button"
-                    class="px-4 py-2 rounded border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
-                    :class="activeStage === STAGES.THEORY ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
-                    :disabled="!previewMode && !theoryTabEnabled"
-                    :title="theoryTabTitle"
-                    @click="goToStage(STAGES.THEORY)"
-                >
-                    2. Теория
-                </button>
-                <button
-                    v-if="hasPracticeTasks"
-                    type="button"
-                    class="px-4 py-2 rounded border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
-                    :class="activeStage === STAGES.PRACTICE ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
-                    :disabled="!previewMode && !practiceTabEnabled"
-                    :title="practiceTabTitle"
-                    @click="goToStage(STAGES.PRACTICE)"
-                >
-                    3. Практика
-                </button>
-            </div>
-
-            <!-- Стадия «Материал»: смонтирована всегда, видимость — v-show,
-                 поэтому возврат к материалу с любой стадии не размонтирует
-                 остальные секции (введённый ввод живёт в их формах). -->
-            <section
-                v-show="activeStage === STAGES.MATERIAL"
-                class="mt-6 bg-white rounded-lg shadow border border-gray-200 p-6"
-            >
-                <!-- Материал рендерится на сервере (см. MaterialRenderer);
-                     v-html вставляет доверенный HTML (HTMLPurifier-санитизированный
-                     на бэкенде). Стилизация — через .lesson-material
-                     (resources/css/app.css). -->
-                <div
-                    v-if="lesson.material_html"
-                    class="lesson-material text-gray-800"
-                    v-html="lesson.material_html"
-                ></div>
-                <p v-else class="text-gray-500">В этом уроке нет материала для чтения</p>
-
-                <!-- CTA снимает блокировку заданий и открывает следующую
-                     доступную стадию: теорию, а без теоретических заданий —
-                     практику. Уроку без заданий вовсе CTA не нужен; в
-                     preview его тоже нет. -->
-                <div v-if="!previewMode && (hasTheoryTasks || hasPracticeTasks)" class="mt-6">
-                    <Button type="button" @click="proceedFromMaterial">
-                        {{ hasTheoryTasks ? 'Перейти к теории' : 'Перейти к практике' }}
-                    </Button>
-                </div>
-            </section>
-
-            <!-- Стадия «Теория»: v-if — пока материал не пройден, секции в
-                 DOM нет; после разблокировки — v-show, чтобы выбранный radio
-                 переживал уход к материалу и возврат. -->
-            <section v-if="theoryTabEnabled || previewMode" v-show="activeStage === STAGES.THEORY" class="mt-8">
-                <div class="mb-4">
-                    <Button type="button" variant="secondary" @click="goToStage(STAGES.MATERIAL)">
-                        Открыть материал
-                    </Button>
-                </div>
-
-                <h2 class="text-xl font-semibold text-gray-900 mb-4">Теоретические задания</h2>
-
-                <!-- Preview: все вопросы урока списком read-only, без
-                     radio-выбора и кнопки «Ответить». -->
-                <template v-if="previewMode">
+            <main class="min-w-0 flex-1">
+                <div class="max-w-4xl mx-auto px-4 py-10">
                     <div
-                        v-for="task in lesson.theoryTasks"
-                        :key="task.id"
-                        class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-4"
+                        v-if="previewMode"
+                        class="mb-6 rounded bg-yellow-50 border border-yellow-300 px-4 py-3 text-sm text-yellow-800"
                     >
-                        <div class="flex items-start justify-between gap-3 mb-1">
-                            <p class="text-sm text-gray-500">Вопрос {{ task.order }}</p>
+                        <span class="font-medium">Режим предпросмотра (глазами пользователя)</span>
+                        — действия отключены, прогресс не записывается.
+                    </div>
+
+                    <Link
+                        :href="previewMode ? `/admin/courses/${course.id}/preview` : `/courses/${course.slug}`"
+                        class="text-sm text-blue-600 hover:underline"
+                    >
+                        ← {{ course.title }}
+                    </Link>
+
+                    <section class="mt-4 bg-white rounded-lg shadow border border-gray-200 p-6">
+                        <p v-if="level" class="text-sm text-gray-500 mb-1">
+                            {{ level.title }} · Урок {{ lesson.order }}
+                        </p>
+                        <div class="flex items-center justify-between gap-4">
+                            <h1 class="text-3xl font-bold text-gray-900">{{ lesson.title }}</h1>
                             <span
-                                v-if="task.is_published === false"
-                                class="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded text-xs"
+                                v-if="previewMode && lesson.is_published === false"
+                                class="shrink-0 px-3 py-1 bg-gray-100 text-gray-600 border border-gray-200 rounded-full text-xs"
                             >
                                 Черновик
                             </span>
+                            <span
+                                v-if="lessonStatus === 'Completed'"
+                                class="shrink-0 px-3 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs"
+                            >
+                                Урок пройден
+                            </span>
                         </div>
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ task.question }}</h3>
-                        <ul class="space-y-2">
-                            <li
-                                v-for="option in task.options"
-                                :key="option.id"
-                                class="px-4 py-3 rounded border border-gray-200 text-sm text-gray-700"
-                            >
-                                {{ option.text }}
-                            </li>
-                        </ul>
-                    </div>
-                    <p v-if="lesson.theoryTasks.length === 0" class="text-sm text-gray-500">
-                        Теоретических заданий в уроке нет.
-                    </p>
-                </template>
+                    </section>
 
-                <template v-else>
-                    <div v-if="solvedTasks.length > 0" class="bg-white rounded-lg border border-gray-200 p-6 mb-4">
-                        <h3 class="text-sm font-medium text-gray-500 mb-2">Отвечено верно</h3>
-                        <ul class="space-y-1">
-                            <li
-                                v-for="task in solvedTasks"
+                    <!-- Бар стадий: поэтапный флоу «материал → теория → практика»
+                         (concept.md §3.3). Таб «Материал» доступен всегда; в
+                         обычном режиме теория и практика блокируются, пока
+                         предыдущая стадия не пройдена; в preview гейтинга нет. -->
+                    <div class="mt-6 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            class="px-4 py-2 rounded border text-sm font-medium"
+                            :class="activeStage === STAGES.MATERIAL ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
+                            @click="goToStage(STAGES.MATERIAL)"
+                        >
+                            1. Изучение
+                        </button>
+                        <button
+                            v-if="previewMode || hasTheoryTasks"
+                            type="button"
+                            class="px-4 py-2 rounded border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
+                            :class="activeStage === STAGES.THEORY ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
+                            :disabled="!previewMode && !theoryTabEnabled"
+                            :title="theoryTabTitle"
+                            @click="goToStage(STAGES.THEORY)"
+                        >
+                            2. Теория
+                        </button>
+                        <button
+                            v-if="hasPracticeTasks"
+                            type="button"
+                            class="px-4 py-2 rounded border text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
+                            :class="activeStage === STAGES.PRACTICE ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
+                            :disabled="!previewMode && !practiceTabEnabled"
+                            :title="practiceTabTitle"
+                            @click="goToStage(STAGES.PRACTICE)"
+                        >
+                            3. Практика
+                        </button>
+                    </div>
+
+                    <!-- Стадия «Материал»: смонтирована всегда, видимость — v-show,
+                         поэтому возврат к материалу с любой стадии не размонтирует
+                         остальные секции (введённый ввод живёт в их формах). -->
+                    <section
+                        v-show="activeStage === STAGES.MATERIAL"
+                        class="mt-6 bg-white rounded-lg shadow border border-gray-200 p-6"
+                    >
+                        <!-- Материал рендерится на сервере (см. MaterialRenderer);
+                             v-html вставляет доверенный HTML (HTMLPurifier-санитизированный
+                             на бэкенде). Стилизация — через .lesson-material
+                             (resources/css/app.css). -->
+                        <div
+                            v-if="lesson.material_html"
+                            class="lesson-material text-gray-800"
+                            v-html="lesson.material_html"
+                        ></div>
+                        <p v-else class="text-gray-500">В этом уроке нет материала для чтения</p>
+
+                        <!-- CTA снимает блокировку заданий и открывает следующую
+                             доступную стадию: теорию, а без теоретических заданий —
+                             практику. Уроку без заданий вовсе CTA не нужен; в
+                             preview его тоже нет. -->
+                        <div v-if="!previewMode && (hasTheoryTasks || hasPracticeTasks)" class="mt-6">
+                            <Button type="button" @click="proceedFromMaterial">
+                                {{ hasTheoryTasks ? 'Перейти к теории' : 'Перейти к практике' }}
+                            </Button>
+                        </div>
+                    </section>
+
+                    <!-- Стадия «Теория»: v-if — пока материал не пройден, секции в
+                         DOM нет; после разблокировки — v-show, чтобы выбранный radio
+                         переживал уход к материалу и возврат. -->
+                    <section v-if="theoryTabEnabled || previewMode" v-show="activeStage === STAGES.THEORY" class="mt-8">
+                        <div class="mb-4">
+                            <Button type="button" variant="secondary" @click="goToStage(STAGES.MATERIAL)">
+                                Открыть материал
+                            </Button>
+                        </div>
+
+                        <h2 class="text-xl font-semibold text-gray-900 mb-4">Теоретические задания</h2>
+
+                        <!-- Preview: все вопросы урока списком read-only, без
+                             radio-выбора и кнопки «Ответить». -->
+                        <template v-if="previewMode">
+                            <div
+                                v-for="task in lesson.theoryTasks"
                                 :key="task.id"
-                                class="flex flex-col gap-1 text-sm text-gray-600"
+                                class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-4"
                             >
-                                <div class="flex items-start gap-2">
-                                    <span class="text-green-600">✓</span>
-                                    <span>{{ task.question }}</span>
+                                <div class="flex items-start justify-between gap-3 mb-1">
+                                    <p class="text-sm text-gray-500">Вопрос {{ task.order }}</p>
+                                    <span
+                                        v-if="task.is_published === false"
+                                        class="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded text-xs"
+                                    >
+                                        Черновик
+                                    </span>
                                 </div>
-                                <div
-                                    v-if="task.correct_option"
-                                    class="ml-6 text-xs text-gray-500"
-                                >
-                                    Правильный ответ:
-                                    <span class="font-medium text-gray-700">{{ task.correct_option.text }}</span>
-                                </div>
-                            </li>
-                        </ul>
-                    </div>
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ task.question }}</h3>
+                                <ul class="space-y-2">
+                                    <li
+                                        v-for="option in task.options"
+                                        :key="option.id"
+                                        class="px-4 py-3 rounded border border-gray-200 text-sm text-gray-700"
+                                    >
+                                        {{ option.text }}
+                                    </li>
+                                </ul>
+                            </div>
+                            <p v-if="lesson.theoryTasks.length === 0" class="text-sm text-gray-500">
+                                Теоретических заданий в уроке нет.
+                            </p>
+                        </template>
 
-                    <p
-                        v-if="shownTheoryFeedback && shownTheoryFeedback.is_correct === false"
-                        class="mb-4 rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm"
-                    >
-                        Неверно: {{ shownTheoryFeedback.error_text }}
-                    </p>
-                    <p
-                        v-else-if="shownTheoryFeedback && shownTheoryFeedback.is_correct === true"
-                        class="mb-4 rounded bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm"
-                    >
-                        Верно!
-                    </p>
+                        <template v-else>
+                            <div v-if="solvedTasks.length > 0" class="bg-white rounded-lg border border-gray-200 p-6 mb-4">
+                                <h3 class="text-sm font-medium text-gray-500 mb-2">Отвечено верно</h3>
+                                <ul class="space-y-1">
+                                    <li
+                                        v-for="task in solvedTasks"
+                                        :key="task.id"
+                                        class="flex flex-col gap-1 text-sm text-gray-600"
+                                    >
+                                        <div class="flex items-start gap-2">
+                                            <span class="text-green-600">✓</span>
+                                            <span>{{ task.question }}</span>
+                                        </div>
+                                        <div
+                                            v-if="task.correct_option"
+                                            class="ml-6 text-xs text-gray-500"
+                                        >
+                                            Правильный ответ:
+                                            <span class="font-medium text-gray-700">{{ task.correct_option.text }}</span>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
 
-                    <div
-                        v-if="currentTask && (!theoryMinimumDone || optionalTheoryOpen)"
-                        class="bg-white rounded-lg shadow border border-gray-200 p-6"
-                    >
-                        <p class="text-sm text-gray-500 mb-2">
-                            <template v-if="currentTaskIndexInRequired !== null">
-                                Вопрос {{ currentTaskIndexInRequired + 1 }} из {{ requiredTheoryTasks.length }}
-                            </template>
-                            <template v-else>
-                                Вопрос {{ currentTask.order }}
-                            </template>
-                        </p>
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ currentTask.question }}</h3>
-
-                        <form @submit.prevent="submit">
-                            <label
-                                v-for="option in optionsForCard(currentTask)"
-                                :key="option.id"
-                                class="flex items-start gap-3 mb-3 px-4 py-3 rounded border border-gray-200 cursor-pointer hover:bg-gray-50"
-                                :class="form.option_id === option.id ? 'border-blue-400 bg-blue-50' : ''"
+                            <p
+                                v-if="shownTheoryFeedback && shownTheoryFeedback.is_correct === false"
+                                class="mb-4 rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm"
                             >
-                                <input v-model="form.option_id" type="radio" name="option" :value="option.id" class="mt-1" />
-                                <span class="text-sm text-gray-700">{{ option.text }}</span>
-                            </label>
-
-                            <p v-if="form.errors.option_id" class="mb-3 text-sm text-red-600">
-                                {{ form.errors.option_id }}
+                                Неверно: {{ shownTheoryFeedback.error_text }}
+                            </p>
+                            <p
+                                v-else-if="shownTheoryFeedback && shownTheoryFeedback.is_correct === true"
+                                class="mb-4 rounded bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm"
+                            >
+                                Верно!
                             </p>
 
-                            <Button type="submit" :processing="form.processing" :disabled="form.option_id === null">
-                                Ответить
-                            </Button>
-                        </form>
-                    </div>
-
-                    <!-- Ряд действий после минимума теории: дальше практика
-                         (или следующий урок, если практики нет); вопросы
-                         сверх минимума — по желанию, через резерв. -->
-                    <div v-if="theoryMinimumDone" class="mt-4 flex flex-wrap gap-3">
-                        <Button v-if="hasPracticeTasks" type="button" @click="goToStage(STAGES.PRACTICE)">
-                            Перейти к практике
-                        </Button>
-                        <Link
-                            v-else
-                            :href="nextLessonHref"
-                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                            {{ nextLessonLabel }}
-                        </Link>
-                        <Button
-                            v-if="currentTask !== null"
-                            type="button"
-                            variant="secondary"
-                            @click="optionalTheoryOpen = true"
-                        >
-                            Ещё один вопрос
-                        </Button>
-                    </div>
-                </template>
-            </section>
-
-            <!-- Стадия «Практика»: v-if — секции нет в DOM, пока стадия
-                 заблокирована (материал не пройден или теория не отвечена);
-                 v-show — набранный SQL в textarea переживает просмотр
-                 материала и возврат. -->
-            <section v-if="practiceTabEnabled || previewMode" v-show="activeStage === STAGES.PRACTICE" class="mt-8">
-                <div class="mb-4">
-                    <Button type="button" variant="secondary" @click="goToStage(STAGES.MATERIAL)">
-                        Открыть материал
-                    </Button>
-                </div>
-
-                <div class="flex items-baseline justify-between gap-4 mb-4">
-                    <h2 class="text-xl font-semibold text-gray-900">Практические задания</h2>
-                    <p v-if="!previewMode" class="text-sm text-gray-500">
-                        Решено: {{ passedPracticeCount }} из {{ practiceTasks.length }}
-                    </p>
-                </div>
-
-                <!-- Обычный режим: интерактивный флоу с формой SQL,
-                     ИИ-кнопками и flash-блоками попыток. В preview эта
-                     ветка не рендерится вовсе. -->
-                <template v-if="!previewMode">
-                    <p
-                        v-if="aiError"
-                        class="mb-4 rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm"
-                    >
-                        {{ aiError }}
-                    </p>
-
-                <p
-                    v-if="shownPracticeFeedback && shownPracticeFeedback.status === 'busy'"
-                    class="mb-4 rounded bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 text-sm"
-                >
-                    Уже выполняется предыдущая попытка — попробуйте чуть позже.
-                </p>
-                <p
-                    v-else-if="shownPracticeFeedback && shownPracticeFeedback.status === 'passed'"
-                    class="mb-4 rounded bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm"
-                >
-                    Верно!
-                </p>
-
-                <!-- Персистентный review практики: карточка на каждое решённое
-                     задание — формулировка + SQL пользователя + канонический
-                     результат (терминал read-only). Данные серверные:
-                     переживает перезагрузку, обновляется после POST → 303 back. -->
-                <div v-if="solvedPracticeReview.length > 0" class="mb-4 space-y-4">
-                    <div
-                        v-for="task in solvedPracticeReview"
-                        :key="task.id"
-                        class="bg-white rounded-lg shadow border border-gray-200 p-6"
-                    >
-                        <p class="text-sm font-medium text-green-700 mb-2">
-                            Задание {{ task.order }} решено ✓
-                        </p>
-                        <!-- Формулировка рендерится на сервере
-                             (PracticeStatementRenderer); v-html вставляет
-                             доверенный HTML (HTMLPurifier-санитизированный
-                             на бэкенде). Стилизация — через .practice-statement
-                             (resources/css/app.css). -->
-                        <div class="practice-statement text-gray-900 mb-4" v-html="task.statement_html"></div>
-
-                        <PracticeTerminal
-                            :entries="[{
-                                id: task.id,
-                                code: task.code,
-                                status: 'passed',
-                                result: task.result,
-                            }]"
-                            code=""
-                            disabled
-                        />
-                    </div>
-                </div>
-
-                <div v-if="canRequestAiFeedback" class="mb-4">
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        :processing="aiFeedbackPending"
-                        @click="requestAiFeedback"
-                    >
-                        Запросить ИИ-фидбэк
-                    </Button>
-                </div>
-
-                <div v-if="shownAiFeedback" class="mb-4 bg-white rounded-lg border border-blue-200 p-6">
-                    <h3 class="text-sm font-medium text-blue-700 mb-2">ИИ-фидбэк по попытке</h3>
-                    <p class="text-sm text-gray-700 whitespace-pre-line">{{ shownAiFeedback.body }}</p>
-                </div>
-
-                <div v-if="extraTask" class="mb-4 bg-white rounded-lg border border-indigo-200 p-6">
-                    <h3 class="text-sm font-medium text-indigo-700 mb-2">Дополнительная задача</h3>
-                    <p class="text-base text-gray-900 mb-2">{{ extraTask.task_text }}</p>
-                    <p v-if="extraTask.expected_result" class="text-sm text-gray-600">
-                        Ожидаемый результат: {{ extraTask.expected_result }}
-                    </p>
-                </div>
-
-                <div
-                    v-if="currentPracticeTask && (!practiceMinimumDone || optionalPracticeOpen)"
-                    class="bg-white rounded-lg shadow border border-gray-200 p-6"
-                >
-                    <p class="text-sm text-gray-500 mb-2">Задание {{ currentPracticeTask.order }}</p>
-                    <div class="practice-statement text-gray-900 mb-2" v-html="currentPracticeTask.statement_html"></div>
-                    <p class="text-sm text-gray-600 mb-4">
-                        Ожидаемый результат: {{ currentPracticeTask.expected_result_text }}
-                    </p>
-
-                    <!-- Мульти-стейтменты разрешены (docker-драйвер):
-                         зачёт по result set последней инструкции. -->
-                    <p class="mb-3 text-xs text-gray-500">
-                        Можно несколько инструкций, разделённых «;». Зачёт по результату последней.
-                    </p>
-
-                    <PracticeTerminal
-                        :entries="practiceHistory"
-                        v-model:code="practiceForm.code"
-                        :processing="practiceForm.processing"
-                        :code-error="practiceForm.errors.code"
-                        @submit="submitPractice"
-                    />
-
-                    <div v-if="isPremium" class="mt-4 pt-4 border-t border-gray-200">
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            :processing="extraTaskPending"
-                            @click="requestExtraTask"
-                        >
-                            Сгенерировать дополнительную задачу
-                        </Button>
-                    </div>
-                </div>
-
-                <!-- Ряд действий после минимума практики: следующий урок и
-                     опциональный резерв заданий; резерв закончился — все
-                     задания урока решены. -->
-                <div v-if="practiceMinimumDone" class="bg-white rounded-lg shadow border border-gray-200 p-6">
-                    <p v-if="currentPracticeTask === null" class="text-sm text-gray-500 mb-4">
-                        Все практические задания урока решены.
-                    </p>
-                    <div class="flex flex-wrap gap-3">
-                        <Link
-                            :href="nextLessonHref"
-                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                            {{ nextLessonLabel }}
-                        </Link>
-                        <Button
-                            v-if="currentPracticeTask !== null"
-                            type="button"
-                            variant="secondary"
-                            @click="optionalPracticeOpen = true"
-                        >
-                            Ещё одно задание
-                        </Button>
-                    </div>
-                </div>
-                </template>
-
-                <template v-else>
-                    <!-- Preview: все задания урока списком read-only — только
-                         формулировка и ожидаемый результат, без формы SQL и
-                         ИИ-кнопок. -->
-                    <div
-                        v-for="task in practiceTasks"
-                        :key="task.id"
-                        class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-4"
-                    >
-                        <div class="flex items-start justify-between gap-3 mb-2">
-                            <p class="text-sm text-gray-500">Задание {{ task.order }}</p>
-                            <span
-                                v-if="task.is_published === false"
-                                class="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded text-xs"
+                            <div
+                                v-if="currentTask && (!theoryMinimumDone || optionalTheoryOpen)"
+                                class="bg-white rounded-lg shadow border border-gray-200 p-6"
                             >
-                                Черновик
-                            </span>
+                                <p class="text-sm text-gray-500 mb-2">
+                                    <template v-if="currentTaskIndexInRequired !== null">
+                                        Вопрос {{ currentTaskIndexInRequired + 1 }} из {{ requiredTheoryTasks.length }}
+                                    </template>
+                                    <template v-else>
+                                        Вопрос {{ currentTask.order }}
+                                    </template>
+                                </p>
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ currentTask.question }}</h3>
+
+                                <form @submit.prevent="submit">
+                                    <label
+                                        v-for="option in optionsForCard(currentTask)"
+                                        :key="option.id"
+                                        class="flex items-start gap-3 mb-3 px-4 py-3 rounded border border-gray-200 cursor-pointer hover:bg-gray-50"
+                                        :class="form.option_id === option.id ? 'border-blue-400 bg-blue-50' : ''"
+                                    >
+                                        <input v-model="form.option_id" type="radio" name="option" :value="option.id" class="mt-1" />
+                                        <span class="text-sm text-gray-700">{{ option.text }}</span>
+                                    </label>
+
+                                    <p v-if="form.errors.option_id" class="mb-3 text-sm text-red-600">
+                                        {{ form.errors.option_id }}
+                                    </p>
+
+                                    <Button type="submit" :processing="form.processing" :disabled="form.option_id === null">
+                                        Ответить
+                                    </Button>
+                                </form>
+                            </div>
+
+                            <!-- Ряд действий после минимума теории: дальше практика
+                                 (или следующий урок, если практики нет); вопросы
+                                 сверх минимума — по желанию, через резерв. -->
+                            <div v-if="theoryMinimumDone" class="mt-4 flex flex-wrap gap-3">
+                                <Button v-if="hasPracticeTasks" type="button" @click="goToStage(STAGES.PRACTICE)">
+                                    Перейти к практике
+                                </Button>
+                                <Link
+                                    v-else
+                                    :href="nextLessonHref"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                >
+                                    {{ nextLessonLabel }}
+                                </Link>
+                                <Button
+                                    v-if="currentTask !== null"
+                                    type="button"
+                                    variant="secondary"
+                                    @click="optionalTheoryOpen = true"
+                                >
+                                    Ещё один вопрос
+                                </Button>
+                            </div>
+                        </template>
+                    </section>
+
+                    <!-- Стадия «Практика»: v-if — секции нет в DOM, пока стадия
+                         заблокирована (материал не пройден или теория не отвечена);
+                         v-show — набранный SQL в textarea переживает просмотр
+                         материала и возврат. -->
+                    <section v-if="practiceTabEnabled || previewMode" v-show="activeStage === STAGES.PRACTICE" class="mt-8">
+                        <div class="mb-4">
+                            <Button type="button" variant="secondary" @click="goToStage(STAGES.MATERIAL)">
+                                Открыть материал
+                            </Button>
                         </div>
-                        <div class="practice-statement text-gray-900 mb-2" v-html="task.statement_html"></div>
-                        <p class="text-sm text-gray-600">
-                            Ожидаемый результат: {{ task.expected_result_text }}
+
+                        <div class="flex items-baseline justify-between gap-4 mb-4">
+                            <h2 class="text-xl font-semibold text-gray-900">Практические задания</h2>
+                            <p v-if="!previewMode" class="text-sm text-gray-500">
+                                Решено: {{ passedPracticeCount }} из {{ practiceTasks.length }}
+                            </p>
+                        </div>
+
+                        <!-- Обычный режим: интерактивный флоу с формой SQL,
+                             ИИ-кнопками и flash-блоками попыток. В preview эта
+                             ветка не рендерится вовсе. -->
+                        <template v-if="!previewMode">
+                            <p
+                                v-if="aiError"
+                                class="mb-4 rounded bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm"
+                            >
+                                {{ aiError }}
+                            </p>
+
+                        <p
+                            v-if="shownPracticeFeedback && shownPracticeFeedback.status === 'busy'"
+                            class="mb-4 rounded bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 text-sm"
+                        >
+                            Уже выполняется предыдущая попытка — попробуйте чуть позже.
                         </p>
-                    </div>
-                </template>
-            </section>
-        </main>
+                        <p
+                            v-else-if="shownPracticeFeedback && shownPracticeFeedback.status === 'passed'"
+                            class="mb-4 rounded bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm"
+                        >
+                            Верно!
+                        </p>
+
+                        <!-- Персистентный review практики: карточка на каждое решённое
+                             задание — формулировка + SQL пользователя + канонический
+                             результат (терминал read-only). Данные серверные:
+                             переживает перезагрузку, обновляется после POST → 303 back. -->
+                        <div v-if="solvedPracticeReview.length > 0" class="mb-4 space-y-4">
+                            <div
+                                v-for="task in solvedPracticeReview"
+                                :key="task.id"
+                                class="bg-white rounded-lg shadow border border-gray-200 p-6"
+                            >
+                                <p class="text-sm font-medium text-green-700 mb-2">
+                                    Задание {{ task.order }} решено ✓
+                                </p>
+                                <!-- Формулировка рендерится на сервере
+                                     (PracticeStatementRenderer); v-html вставляет
+                                     доверенный HTML (HTMLPurifier-санитизированный
+                                     на бэкенде). Стилизация — через .practice-statement
+                                     (resources/css/app.css). -->
+                                <div class="practice-statement text-gray-900 mb-4" v-html="task.statement_html"></div>
+
+                                <PracticeTerminal
+                                    :entries="[{
+                                        id: task.id,
+                                        code: task.code,
+                                        status: 'passed',
+                                        result: task.result,
+                                    }]"
+                                    code=""
+                                    disabled
+                                />
+                            </div>
+                        </div>
+
+                        <div v-if="canRequestAiFeedback" class="mb-4">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                :processing="aiFeedbackPending"
+                                @click="requestAiFeedback"
+                            >
+                                Запросить ИИ-фидбэк
+                            </Button>
+                        </div>
+
+                        <div v-if="shownAiFeedback" class="mb-4 bg-white rounded-lg border border-blue-200 p-6">
+                            <h3 class="text-sm font-medium text-blue-700 mb-2">ИИ-фидбэк по попытке</h3>
+                            <p class="text-sm text-gray-700 whitespace-pre-line">{{ shownAiFeedback.body }}</p>
+                        </div>
+
+                        <div v-if="extraTask" class="mb-4 bg-white rounded-lg border border-indigo-200 p-6">
+                            <h3 class="text-sm font-medium text-indigo-700 mb-2">Дополнительная задача</h3>
+                            <p class="text-base text-gray-900 mb-2">{{ extraTask.task_text }}</p>
+                            <p v-if="extraTask.expected_result" class="text-sm text-gray-600">
+                                Ожидаемый результат: {{ extraTask.expected_result }}
+                            </p>
+                        </div>
+
+                        <div
+                            v-if="currentPracticeTask && (!practiceMinimumDone || optionalPracticeOpen)"
+                            class="bg-white rounded-lg shadow border border-gray-200 p-6"
+                        >
+                            <p class="text-sm text-gray-500 mb-2">Задание {{ currentPracticeTask.order }}</p>
+                            <div class="practice-statement text-gray-900 mb-2" v-html="currentPracticeTask.statement_html"></div>
+                            <p class="text-sm text-gray-600 mb-4">
+                                Ожидаемый результат: {{ currentPracticeTask.expected_result_text }}
+                            </p>
+
+                            <!-- Мульти-стейтменты разрешены (docker-драйвер):
+                                 зачёт по result set последней инструкции. -->
+                            <p class="mb-3 text-xs text-gray-500">
+                                Можно несколько инструкций, разделённых «;». Зачёт по результату последней.
+                            </p>
+
+                            <PracticeTerminal
+                                :entries="practiceHistory"
+                                v-model:code="practiceForm.code"
+                                :processing="practiceForm.processing"
+                                :code-error="practiceForm.errors.code"
+                                @submit="submitPractice"
+                            />
+
+                            <div v-if="isPremium" class="mt-4 pt-4 border-t border-gray-200">
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    :processing="extraTaskPending"
+                                    @click="requestExtraTask"
+                                >
+                                    Сгенерировать дополнительную задачу
+                                </Button>
+                            </div>
+                        </div>
+
+                        <!-- Ряд действий после минимума практики: следующий урок и
+                             опциональный резерв заданий; резерв закончился — все
+                             задания урока решены. -->
+                        <div v-if="practiceMinimumDone" class="bg-white rounded-lg shadow border border-gray-200 p-6">
+                            <p v-if="currentPracticeTask === null" class="text-sm text-gray-500 mb-4">
+                                Все практические задания урока решены.
+                            </p>
+                            <div class="flex flex-wrap gap-3">
+                                <Link
+                                    :href="nextLessonHref"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                >
+                                    {{ nextLessonLabel }}
+                                </Link>
+                                <Button
+                                    v-if="currentPracticeTask !== null"
+                                    type="button"
+                                    variant="secondary"
+                                    @click="optionalPracticeOpen = true"
+                                >
+                                    Ещё одно задание
+                                </Button>
+                            </div>
+                        </div>
+                        </template>
+
+                        <template v-else>
+                            <!-- Preview: все задания урока списком read-only — только
+                                 формулировка и ожидаемый результат, без формы SQL и
+                                 ИИ-кнопок. -->
+                            <div
+                                v-for="task in practiceTasks"
+                                :key="task.id"
+                                class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-4"
+                            >
+                                <div class="flex items-start justify-between gap-3 mb-2">
+                                    <p class="text-sm text-gray-500">Задание {{ task.order }}</p>
+                                    <span
+                                        v-if="task.is_published === false"
+                                        class="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded text-xs"
+                                    >
+                                        Черновик
+                                    </span>
+                                </div>
+                                <div class="practice-statement text-gray-900 mb-2" v-html="task.statement_html"></div>
+                                <p class="text-sm text-gray-600">
+                                    Ожидаемый результат: {{ task.expected_result_text }}
+                                </p>
+                            </div>
+                        </template>
+                    </section>
+                </div>
+            </main>
+        </div>
     </div>
 </template>

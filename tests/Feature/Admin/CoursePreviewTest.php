@@ -158,6 +158,36 @@ class CoursePreviewTest extends TestCase
             ->where('nextLesson.title', $nextLesson->title));
     }
 
+    public function test_preview_lesson_course_levels_include_drafts_without_status(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $course = Course::factory()->create();
+        $level1 = Level::factory()->create(['course_id' => $course->id, 'title' => 'Азы', 'order' => 1]);
+        $level2 = Level::factory()->create(['course_id' => $course->id, 'title' => 'Дальше', 'order' => 2]);
+
+        $lesson = Lesson::factory()->unpublished()->for($level1)->create(['order' => 1]);
+        $published = Lesson::factory()->for($level1)->create(['order' => 2]);
+        $otherLevelLesson = Lesson::factory()->unpublished()->for($level2)->create(['order' => 1]);
+
+        $response = $this->actingAs($admin)->get(route('admin.courses.preview.lesson', [$course, $lesson]));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Lessons/Show')
+            ->where('previewMode', true)
+            ->where('courseLevels.0.id', $level1->id)
+            ->has('courseLevels.0.lessons', 2)
+            ->where('courseLevels.0.lessons.0.id', $lesson->id)
+            ->where('courseLevels.0.lessons.0.is_published', false)
+            ->where('courseLevels.0.lessons.0.status', null)
+            ->where('courseLevels.0.lessons.1.id', $published->id)
+            ->where('courseLevels.0.lessons.1.is_published', true)
+            ->where('courseLevels.0.lessons.1.status', null)
+            ->where('courseLevels.1.id', $level2->id)
+            ->where('courseLevels.1.lessons.0.id', $otherLevelLesson->id)
+            ->where('courseLevels.1.lessons.0.status', null));
+    }
+
     public function test_lesson_of_another_course_returns_404(): void
     {
         $admin = User::factory()->admin()->create();
