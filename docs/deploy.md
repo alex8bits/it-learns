@@ -85,6 +85,66 @@ php-контейнер должен использовать либо `DOCKER_HO
 с включённой в Docker Desktop опцией «Expose daemon on tcp://localhost:2375
 without TLS», либо альтернативный транспорт. На проде (Linux) это не нужно.
 
+## Планировщик (обязательно)
+
+Laravel сам **не исполняет** зарегистрированное расписание
+(`routes/console.php:26-28`): без внешнего планировщика (cron
+`schedule:run` или демон `schedule:work`) не запускаются:
+
+- `practice:prune-environments` — автоочистка контейнеров практики по TTL
+  (`PRACTICE_DOCKER_PRUNE_TTL_MINUTES`, см.
+  `app/Services/Practice/PracticeEnvironmentPruner.php`); страховка от
+  крашей PHP mid-run — без прунера контейнеры копятся до ручной чистки;
+- `subscriptions:expire` — ежедневное истечение премиум-подписок.
+
+Нужен ровно один из вариантов ниже.
+
+### Вариант 1: supervisor (рекомендуемый, действует на текущем проде)
+
+Конвенция сервера sweb: фоновые процессы уже под supervisor'ом. Конфиг
+`/etc/supervisor/conf.d/it-learns-schedule.conf`:
+
+```ini
+[program:it-learns-schedule]
+process_name=%(program_name)s_%(process_num)02d
+command=php /srv/www/it-learns/artisan schedule:work
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/srv/www/it-learns/storage/logs/scheduler.log
+stopwaitsecs=30
+```
+
+Применение (`reload` не подходит — перезапускает supervisord целиком и все соседние программы; `reread && update` применяет точечно):
+
+```bash
+supervisorctl reread && supervisorctl update
+```
+
+Проверка:
+
+```bash
+supervisorctl status | grep it-learns-schedule
+# Ожидаемо: RUNNING
+
+tail -f /srv/www/it-learns/storage/logs/scheduler.log
+# Ожидаемо: раз в 5 минут строка вида
+# Running ['artisan' practice:prune-environments] ... DONE
+```
+
+### Вариант 2: cron
+
+```cron
+* * * * * cd /srv/www/it-learns && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Замечание: для supervisor-варианта лог тиков планировщика пишется в
+`storage/logs/scheduler.log`.
+
 ## Образы, которые будут загружены
 
 `mysql:8` и `postgres:16` подтягиваются автоматически при первой
@@ -113,6 +173,15 @@ docker compose exec php docker ps
 # 3. Образ mysql:8 доступен
 docker compose exec php docker images mysql:8
 # Ожидаемо: строка с IMAGE=mysql:8
+
+# 4. Расписание зарегистрировано и исполняется (команды на хосте)
+php artisan schedule:list
+# Ожидаемо: subscriptions:expire (daily) и practice:prune-environments (каждые 5 минут)
+
+supervisorctl status | grep it-learns-schedule   # вариант с cron: crontab -l
+# Ожидаемо: RUNNING (для cron — строка с schedule:run)
+
+# И далее: в storage/logs/scheduler.log периодически появляются прогоны
 ```
 
 ## Известные ограничения текущего dev-окружения
