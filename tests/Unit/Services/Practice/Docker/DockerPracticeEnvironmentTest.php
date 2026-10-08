@@ -35,7 +35,7 @@ class DockerPracticeEnvironmentTest extends TestCase
 {
     private const CODE = 'SELECT id, name FROM clients ORDER BY id;';
 
-    private const MYSQL_CLIENT = ['mysql', '-uroot', '-ppractice', '-D', 'practice', '--batch'];
+    private const MYSQL_CLIENT = ['mysql', '-uroot', '-ppractice', '-D', 'practice', '--default-character-set=utf8mb4', '--batch'];
 
     private const PSQL_CLIENT = [
         'psql',
@@ -145,7 +145,7 @@ class DockerPracticeEnvironmentTest extends TestCase
         $this->docker->shouldReceive('startContainer')->once()->andReturn('cid-pw');
         $this->docker->shouldReceive('exec')->once()->with(
             'cid-pw',
-            ['mysql', '-uroot', '-p'.$password, '-D', $database, '--batch'],
+            ['mysql', '-uroot', '-p'.$password, '-D', $database, '--default-character-set=utf8mb4', '--batch'],
             'SELECT 1;',
             20,
         )->andReturn(new DockerExecResult(0, "1\n", '', 1.0));

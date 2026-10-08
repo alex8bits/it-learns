@@ -372,7 +372,9 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
      * The argv of the in-container engine client. mysql --batch (and
      * psql -A -F "\t") emit tab-separated rows with the header first —
      * exactly what DockerTableParser consumes; -P null=<marker> makes
-     * SQL NULL explicit for psql.
+     * SQL NULL explicit for psql. The mysql client is forced to
+     * utf8mb4: with an empty LANG the image defaults the connection to
+     * latin1, and ORDER BY then sorts the double-encoded Cyrillic.
      *
      * @return list<string>
      *
@@ -402,7 +404,15 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
         // mysql client selects nothing on its own, and every seed_sql /
         // student query relies on an already-selected database (no
         // `USE ...;` of its own — docs/mysql-lesson-rule.md §3).
-        return ['mysql', '-uroot', '-p'.$this->mysqlRootPassword(), '-D', $this->mysqlDatabaseName(), '--batch'];
+        return [
+            'mysql',
+            '-uroot',
+            '-p'.$this->mysqlRootPassword(),
+            '-D',
+            $this->mysqlDatabaseName(),
+            '--default-character-set=utf8mb4',
+            '--batch',
+        ];
     }
 
     /**
