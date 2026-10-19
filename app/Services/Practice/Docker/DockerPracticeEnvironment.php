@@ -342,7 +342,8 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
     }
 
     /**
-     * Poll the engine client with SELECT 1 until it answers or the
+     * Poll the engine client with SELECT 1 over loopback TCP (see
+     * readinessCommand()) until it answers or the
      * provision budget is spent (the mysql:8 image alone needs
      * 10-30 s of boot time before the socket accepts queries).
      *
@@ -354,7 +355,7 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
         $deadline = microtime(true) + $timeoutSeconds;
 
         while (true) {
-            $ping = $this->docker->exec($containerId, $this->engineClientCommand($runtime), 'SELECT 1;', $this->timeoutSeconds());
+            $ping = $this->docker->exec($containerId, $this->readinessCommand($runtime), 'SELECT 1;', $this->timeoutSeconds());
 
             if ($ping->exitCode === 0) {
                 return;
@@ -366,6 +367,29 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
 
             sleep(1);
         }
+    }
+
+    /**
+     * The engine client argv for the readiness ping: the regular client
+     * forced onto loopback TCP. Both official images first boot a
+     * temporary init server that listens on the unix socket only
+     * (mysql --skip-networking, postgres listen_addresses=''), then
+     * stop it and start the real one; a socket ping passes on the
+     * temporary server, so the seed and the first student query could
+     * land in the restart window. Only the final server accepts TCP
+     * (--network none still provides the container's loopback).
+     *
+     * @return list<string>
+     *
+     * @throws RuntimeException when the mysql root password cannot be derived from the config
+     */
+    private function readinessCommand(PracticeRuntime $runtime): array
+    {
+        $tcpArgs = $runtime === PracticeRuntime::Postgres
+            ? ['-h', '127.0.0.1']
+            : ['--protocol=TCP', '-h127.0.0.1', '-P3306'];
+
+        return [...$this->engineClientCommand($runtime), ...$tcpArgs];
     }
 
     /**

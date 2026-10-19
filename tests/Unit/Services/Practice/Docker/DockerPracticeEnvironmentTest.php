@@ -37,6 +37,8 @@ class DockerPracticeEnvironmentTest extends TestCase
 
     private const MYSQL_CLIENT = ['mysql', '-uroot', '-ppractice', '-D', 'practice', '--default-character-set=utf8mb4', '--batch'];
 
+    private const MYSQL_READINESS_CLIENT = [...self::MYSQL_CLIENT, '--protocol=TCP', '-h127.0.0.1', '-P3306'];
+
     private const PSQL_CLIENT = [
         'psql',
         '-U', 'postgres',
@@ -117,7 +119,7 @@ class DockerPracticeEnvironmentTest extends TestCase
 
         $this->docker->shouldReceive('exec')->once()->with(
             'cid-pg',
-            self::PSQL_CLIENT,
+            [...self::PSQL_CLIENT, '-h', '127.0.0.1'],
             'SELECT 1;',
             20,
         )->andReturn(new DockerExecResult(0, "1\n", '', 2.0));
@@ -145,7 +147,7 @@ class DockerPracticeEnvironmentTest extends TestCase
         $this->docker->shouldReceive('startContainer')->once()->andReturn('cid-pw');
         $this->docker->shouldReceive('exec')->once()->with(
             'cid-pw',
-            ['mysql', '-uroot', '-p'.$password, '-D', $database, '--default-character-set=utf8mb4', '--batch'],
+            ['mysql', '-uroot', '-p'.$password, '-D', $database, '--default-character-set=utf8mb4', '--batch', '--protocol=TCP', '-h127.0.0.1', '-P3306'],
             'SELECT 1;',
             20,
         )->andReturn(new DockerExecResult(0, "1\n", '', 1.0));
@@ -880,7 +882,7 @@ class DockerPracticeEnvironmentTest extends TestCase
     {
         $this->docker->shouldReceive('exec')->once()->with(
             $containerId,
-            self::MYSQL_CLIENT,
+            self::MYSQL_READINESS_CLIENT,
             'SELECT 1;',
             20,
         )->andReturn(new DockerExecResult(0, "1\n", '', 5.0));
