@@ -28,11 +28,12 @@ interface DockerClient
      * @param  int  $memoryMb  hard memory limit (--memory {n}m)
      * @param  float  $cpus  CPU quota (--cpus)
      * @param  int  $pidsLimit  process count limit (--pids-limit)
+     * @param  list<string>  $serverArgs  engine server flags placed after the image (the container command), e.g. mysqld tuning
      * @return string the container id (trimmed stdout of docker run)
      *
      * @throws RuntimeException when the container could not be started (missing image, daemon down, name clash)
      */
-    public function startContainer(string $image, string $name, array $engineArgs, int $memoryMb, float $cpus, int $pidsLimit): string;
+    public function startContainer(string $image, string $name, array $engineArgs, int $memoryMb, float $cpus, int $pidsLimit, array $serverArgs = []): string;
 
     /**
      * Run a command inside a running container, optionally feeding it

@@ -71,10 +71,11 @@ class DockerPracticeEnvironmentTest extends TestCase
         $this->docker->shouldReceive('startContainer')->once()->with(
             'mysql:8',
             Mockery::pattern('/^itlearns-practice-[0-9a-f-]{36}$/'),
-            ['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice'],
+            ['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice', '--tmpfs', '/var/lib/mysql:rw,size=256m'],
             512,
             0.5,
             128,
+            ['--performance-schema=OFF', '--skip-log-bin', '--skip-name-resolve', '--innodb-buffer-pool-size=64M', '--innodb-redo-log-capacity=16M'],
         )->andReturn('cid-1');
 
         $this->expectMysqlReadiness('cid-1');
@@ -115,6 +116,7 @@ class DockerPracticeEnvironmentTest extends TestCase
             512,
             0.5,
             128,
+            [],
         )->andReturn('cid-pg');
 
         $this->docker->shouldReceive('exec')->once()->with(

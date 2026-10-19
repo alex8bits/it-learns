@@ -113,7 +113,7 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
         $containerId = null;
 
         try {
-            [$image, $engineArgs] = $this->runtimeConfig($runtime);
+            [$image, $engineArgs, $serverArgs] = $this->runtimeConfig($runtime);
 
             $containerName = 'itlearns-practice-'.Str::uuid()->toString();
 
@@ -124,6 +124,7 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
                 memoryMb: max(1, (int) config('practice.docker.memory_mb')),
                 cpus: max(0.1, (float) config('practice.docker.cpus')),
                 pidsLimit: max(1, (int) config('practice.docker.pids_limit')),
+                serverArgs: $serverArgs,
             );
 
             $this->awaitReadiness($containerId, $runtime);
@@ -540,7 +541,7 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
      * whitelist; completeness is boot-validated, this is the runtime
      * re-check.
      *
-     * @return array{0: string, 1: list<string>}
+     * @return array{0: string, 1: list<string>, 2: list<string>}
      */
     private function runtimeConfig(PracticeRuntime $runtime): array
     {
@@ -559,7 +560,13 @@ final class DockerPracticeEnvironment implements PracticeEnvironmentManager
             ? array_values(array_filter($engineArgs, is_string(...)))
             : [];
 
-        return [$image, $filtered];
+        $serverArgs = $config['server_args'] ?? [];
+
+        return [
+            $image,
+            $filtered,
+            is_array($serverArgs) ? array_values(array_filter($serverArgs, is_string(...))) : [],
+        ];
     }
 
     /**

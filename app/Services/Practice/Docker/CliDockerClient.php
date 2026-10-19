@@ -47,7 +47,7 @@ final class CliDockerClient implements DockerClient
      */
     private const PRACTICE_LABEL = 'itlearns.practice=1';
 
-    public function startContainer(string $image, string $name, array $engineArgs, int $memoryMb, float $cpus, int $pidsLimit): string
+    public function startContainer(string $image, string $name, array $engineArgs, int $memoryMb, float $cpus, int $pidsLimit, array $serverArgs = []): string
     {
         // Engine args (-e MYSQL_ROOT_PASSWORD=…, -e POSTGRES_PASSWORD=…)
         // must precede the image: everything after the image would be
@@ -66,6 +66,7 @@ final class CliDockerClient implements DockerClient
             '--pids-limit', (string) $pidsLimit,
             ...$engineArgs,
             $image,
+            ...$serverArgs,
         ])->output());
 
         if ($containerId === '') {
@@ -141,6 +142,9 @@ final class CliDockerClient implements DockerClient
                 $this->binary(),
                 'rm',
                 '-f',
+                // -v drops the anonymous VOLUME of the engine image
+                // (/var/lib/mysql), which `rm -f` alone leaks per attempt.
+                '-v',
                 $containerId,
             ]);
         } catch (Throwable) {

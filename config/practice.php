@@ -105,7 +105,16 @@ return [
     'docker' => [
         'binary' => env('PRACTICE_DOCKER_BINARY', 'docker'),
         'runtimes' => [
-            'mysql' => ['image' => 'mysql:8', 'engine_args' => ['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice']],
+            // The datadir lives on a size-capped tmpfs (counted against the
+            // container memory limit) and mysqld is slimmed down to fit:
+            // the per-attempt engine init is I/O-bound, a cold disk
+            // pushed it past the web timeout, and the image's anonymous
+            // volume is gone with the container.
+            'mysql' => [
+                'image' => 'mysql:8',
+                'engine_args' => ['-e', 'MYSQL_ROOT_PASSWORD=practice', '-e', 'MYSQL_DATABASE=practice', '--tmpfs', '/var/lib/mysql:rw,size=256m'],
+                'server_args' => ['--performance-schema=OFF', '--skip-log-bin', '--skip-name-resolve', '--innodb-buffer-pool-size=64M', '--innodb-redo-log-capacity=16M'],
+            ],
             'postgres' => ['image' => 'postgres:16', 'engine_args' => ['-e', 'POSTGRES_PASSWORD=practice']],
         ],
         'memory_mb' => (int) env('PRACTICE_DOCKER_MEMORY_MB', 512),

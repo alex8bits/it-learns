@@ -47,6 +47,7 @@ class CliDockerClientTest extends TestCase
             memoryMb: 512,
             cpus: 0.5,
             pidsLimit: 128,
+            serverArgs: ['--performance-schema=OFF'],
         );
 
         $this->assertSame('abc123containerid', $containerId);
@@ -65,6 +66,7 @@ class CliDockerClientTest extends TestCase
                 '--pids-limit', '128',
                 '-e', 'MYSQL_ROOT_PASSWORD=practice',
                 'mysql:8',
+                '--performance-schema=OFF',
             ] && $result->successful();
         });
     }
@@ -218,7 +220,7 @@ class CliDockerClientTest extends TestCase
 
         $this->client->removeContainer('cid-1');
 
-        Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['docker', 'rm', '-f', 'cid-1']);
+        Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['docker', 'rm', '-f', '-v', 'cid-1']);
     }
 
     public function test_list_labeled_parses_the_tsv_output(): void
