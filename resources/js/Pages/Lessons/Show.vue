@@ -542,7 +542,7 @@ watch(
             ></div>
             <aside
                 id="lesson-sidebar"
-                class="fixed inset-y-0 left-0 z-40 w-80 max-w-[85vw] shrink-0 border-r border-gray-200 bg-white shadow-xl transition-transform duration-200 lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:shadow-none"
+                class="fixed inset-y-0 left-0 z-40 w-96 max-w-[85vw] shrink-0 border-r border-gray-200 bg-white shadow-xl transition-transform duration-200 lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:shadow-none"
                 :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
             >
                 <div class="h-full overflow-y-auto px-4 py-6 lg:sticky lg:top-0 lg:h-auto lg:max-h-screen">
