@@ -3,7 +3,7 @@ import Button from '../../Components/Button.vue';
 import PracticeTerminal from '../../Components/PracticeTerminal.vue';
 import { clearPracticeDraft, loadPracticeDraft, savePracticeDraft } from '../../utils/practiceDrafts';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
     lesson: { type: Object, required: true },
@@ -453,6 +453,24 @@ const sidebarLessonHref = (item) => (props.previewMode
     ? `/admin/courses/${props.course.id}/preview/lessons/${item.id}`
     : `/lessons/${item.slug}`);
 
+// Сайдбар на <lg — выезжающая панель по бургеру; на lg+ он всегда в потоке
+// и этот флаг ни на что не влияет. Закрываем при переходе на другой урок
+// (Inertia может переиспользовать инстанс страницы) и по Escape.
+const sidebarOpen = ref(false);
+watch(
+    () => props.lesson.id,
+    () => {
+        sidebarOpen.value = false;
+    },
+);
+const closeSidebarOnEscape = (event) => {
+    if (event.key === 'Escape') {
+        sidebarOpen.value = false;
+    }
+};
+onMounted(() => document.addEventListener('keydown', closeSidebarOnEscape));
+onBeforeUnmount(() => document.removeEventListener('keydown', closeSidebarOnEscape));
+
 // Автоперехода THEORY → PRACTICE больше нет — выбор всегда за пользователем
 // (кнопка «Перейти к практике»). Опциональную карточку закрываем, когда
 // указатель сместился на следующий вопрос/задание (верный ответ):
@@ -487,7 +505,21 @@ watch(
     <div class="min-h-screen bg-gray-50">
         <header class="bg-white border-b border-gray-200">
             <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-                <Link href="/" class="text-xl font-bold text-gray-900">it-learns</Link>
+                <div class="flex items-center gap-2">
+                    <button
+                        type="button"
+                        class="lg:hidden -ml-2 p-2 rounded text-gray-600 hover:bg-gray-100"
+                        aria-label="Уроки курса"
+                        aria-controls="lesson-sidebar"
+                        :aria-expanded="sidebarOpen"
+                        @click="sidebarOpen = true"
+                    >
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                    <Link href="/" class="text-xl font-bold text-gray-900">it-learns</Link>
+                </div>
                 <nav class="flex gap-3 text-sm">
                     <Link href="/courses" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
                         Каталог
@@ -500,14 +532,35 @@ watch(
         </header>
 
         <div class="flex">
-            <!-- Сайдбар: все уроки курса по уровням; на <lg скрыт — переключение
-                 на мобильных через back-link на страницу курса и кнопку
-                 «следующий урок» (осознанное ограничение дизайна). -->
-            <aside class="hidden lg:block w-64 shrink-0 border-r border-gray-200 bg-white">
-                <div class="sticky top-0 max-h-screen overflow-y-auto px-4 py-6">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                        {{ course.title }}
-                    </p>
+            <!-- Сайдбар: все уроки курса по уровням. На lg+ — колонка в потоке,
+                 на <lg — выезжающая слева панель (бургер в шапке) с подложкой. -->
+            <div
+                v-show="sidebarOpen"
+                class="fixed inset-0 z-30 bg-gray-900/40 lg:hidden"
+                aria-hidden="true"
+                @click="sidebarOpen = false"
+            ></div>
+            <aside
+                id="lesson-sidebar"
+                class="fixed inset-y-0 left-0 z-40 w-80 max-w-[85vw] shrink-0 border-r border-gray-200 bg-white shadow-xl transition-transform duration-200 lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:shadow-none"
+                :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+            >
+                <div class="h-full overflow-y-auto px-4 py-6 lg:sticky lg:top-0 lg:h-auto lg:max-h-screen">
+                    <div class="mb-3 flex items-start justify-between gap-2">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            {{ course.title }}
+                        </p>
+                        <button
+                            type="button"
+                            class="lg:hidden -mr-2 -mt-2 p-2 rounded text-gray-500 hover:bg-gray-100"
+                            aria-label="Закрыть список уроков"
+                            @click="sidebarOpen = false"
+                        >
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
                     <div v-for="group in courseLevels" :key="group.id" class="mb-5">
                         <p class="mb-2 text-sm font-medium text-gray-500">{{ group.title }}</p>
                         <ul class="space-y-1">
@@ -525,7 +578,7 @@ watch(
                                     >
                                         {{ item.order }}
                                     </span>
-                                    <span class="min-w-0 flex-1 truncate">{{ item.title }}</span>
+                                    <span class="min-w-0 flex-1 break-words">{{ item.title }}</span>
                                     <span
                                         v-if="item.status === 'Completed'"
                                         class="shrink-0 px-2 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded text-xs"
