@@ -20,8 +20,8 @@ class PracticeEnvironmentManagerBindingTest extends TestCase
 
         $manager = app(PracticeEnvironmentManager::class);
 
-        $this->assertInstanceOf(LocalSqlitePracticeEnvironment::class, $manager);
         $this->assertSame($manager, app(PracticeEnvironmentManager::class));
+        $this->assertInstanceOf(LocalSqlitePracticeEnvironment::class, $manager);
     }
 
     public function test_binds_docker_manager_from_config(): void
@@ -37,10 +37,10 @@ class PracticeEnvironmentManagerBindingTest extends TestCase
 
         $manager = app(PracticeEnvironmentManager::class);
 
-        // The identity check runs before the class narrowing — with
-        // the narrowing first, PHPStan flags the second narrowed
-        // assertSame of this file with an unresolvable-type false
-        // positive (the identical local-sqlite shape above is clean).
+        // The identity check must run before the class narrowing in this
+        // file — a variable narrowed by assertInstanceOf carries an
+        // unresolvable template type into the generic assertSame,
+        // which PHPStan flags as a false positive.
         $this->assertSame($manager, app(PracticeEnvironmentManager::class));
         $this->assertInstanceOf(DockerPracticeEnvironment::class, $manager);
     }
