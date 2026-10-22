@@ -242,8 +242,10 @@ CTE с помесячной агрегацией и `LAG` для сравнен�
 **statement:**
 
 Таблицы `customers` (три покупателя), `products` (четыре товара),
-`orders` (семь заказов за март–июль 2026, один — `'cancelled'`) и
-`order_items` (11 позиций). Отменённые заказы в выручку не входят.
+`orders` (`id`, `status`; семь заказов за март–июль 2026, один —
+`status` = `'cancelled'`) и `order_items` (`order_id`, `quantity`,
+`price`; 11 позиций, связь `order_id` = `orders.id`). Отменённые заказы
+(`status` <> `'cancelled'`) в выручку не входят.
 
 Напишите запрос с CTE `monthly_revenue` — помесячная выручка: ключ
 месяца через `DATE_FORMAT(o.created_at, '%Y-%m')`, сумма
@@ -357,14 +359,16 @@ INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
 
 **statement:**
 
-Таблицы `categories` (три категории), `products` (восемь товаров),
-`orders` (семь оплаченных заказов) и `order_items` (13 позиций).
+Таблицы `categories` (`id`, `name`; три категории), `products` (`id`,
+`name`, `category_id`; восемь товаров), `orders` (`id`, `status`; семь
+оплаченных заказов) и `order_items` (`order_id`, `product_id`,
+`quantity`; 13 позиций, связь `order_id` = `orders.id`).
 
 Напишите запрос с цепочкой из двух CTE:
 
 1. `product_sales` — для каждого товара: `product_id`,
    `product_name`, `category_id` и проданные единицы `units_sold`
-   (`SUM(quantity)`; только не отменённые заказы).
+   (`SUM(quantity)`; только заказы с `status` <> `'cancelled'`).
 2. `ranked_sales` — то же плюс место `rank_in_category` через
    `ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY units_sold
    DESC, product_name)`: при равных продажах выше ставится товар, чьё
@@ -480,16 +484,19 @@ INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
 
 **statement:**
 
-Таблицы `customers` (пять покупателей; у одной — ни одного заказа),
-`products` (четыре товара), `orders` (пять заказов, один —
-`'cancelled'`) и `order_items`.
+Таблицы `customers` (`id`, `name`; пять покупателей; у одной — ни одного
+заказа), `products` (четыре товара), `orders` (`id`, `customer_id`,
+`status`; пять заказов, один — `'cancelled'`) и `order_items`
+(`order_id`, `quantity`, `price`).
 
 Создайте VIEW `customer_segments`, которая выводит по каждому
 покупателю:
 
 - `customer_id` и `customer_name`;
-- `total_spent` — суммарные траты по не отменённым заказам (0, если
-  заказов нет: `LEFT JOIN` с фильтром статуса в `ON` + `COALESCE` —
+- `total_spent` — суммарные траты `SUM(quantity * price)` по заказам с
+  `status` <> `'cancelled'` (0, если заказов нет: `LEFT JOIN` по
+  `orders.customer_id = customers.id` с фильтром `status` в `ON`, затем
+  `order_items` по `order_id` = `orders.id`, и `COALESCE` —
   клиент без заказов не должен выпадать);
 - `spent_vs_avg` — отношение трат к средним тратам всех покупателей,
   `ROUND(..., 2)`; среднее — скалярный подзапрос по CTE итогов;

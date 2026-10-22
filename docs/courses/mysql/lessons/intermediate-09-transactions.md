@@ -227,10 +227,11 @@ COMMIT;
 
 **statement:**
 
-Таблицы `customers` (три покупателя), `products` (три товара; у товара
+Таблицы `customers` (три покупателя), `products` (`id`, `stock`; у товара
 `id = 1` «Наушники беспроводные» цена 8990.00 и остаток 10), `orders`
-(один доставленный заказ с `id = 1` от 2026-08-14) и `order_items`
-(одна позиция этого заказа).
+(`customer_id`, `status`, `created_at`; один доставленный заказ с
+`id = 1` от 2026-08-14) и `order_items` (`order_id`, `product_id`,
+`quantity`, `price`; одна позиция этого заказа).
 
 1. Начните транзакцию и оформите заказ покупателя с `id = 2`: создайте
    заказ (`'new'`, `'2026-09-20'`), добавьте позицию — 2 шт. товара
@@ -321,9 +322,10 @@ INSERT INTO order_items (order_id, product_id, quantity, price) VALUES
 
 **statement:**
 
-Таблицы `customers` (два покупателя), `products` (три товара; у товара
-`id = 2` «Док-станция USB-C» цена 7900.00 и остаток 12), `orders` и
-`order_items` — обе пустые.
+Таблицы `customers` (`id`, `name`; два покупателя), `products` (`id`,
+`name`, `stock`; у товара `id = 2` «Док-станция USB-C» цена 7900.00 и
+остаток 12), `orders` (`customer_id`, `status`, `created_at`) и
+`order_items` (`order_id`, `product_id`, `quantity`, `price`) — обе пустые.
 
 1. Начните транзакцию и создайте заказ покупателя `id = 2` (`'new'`,
    `'2026-09-22'`). Таблица `orders` пуста, поэтому заказ получит
@@ -411,9 +413,11 @@ CREATE TABLE order_items (
 
 **statement:**
 
-Таблицы `customers` (три покупателя), `products` (три товара), `orders`
-(один доставленный заказ `id = 1` от 2026-07-30) и `order_items` (одна
-позиция: 1 шт. товара `id = 3`).
+Таблицы `customers` (`id`, `name`; три покупателя), `products` (`id`,
+`stock`; три товара), `orders` (`customer_id`, `status`, `created_at`;
+один доставленный заказ `id = 1` от 2026-07-30) и `order_items`
+(`order_id`, `product_id`, `quantity`, `price`; одна позиция: 1 шт.
+товара `id = 3`).
 
 1. Первая транзакция — успешная: заказ покупателя `id = 1` (`'new'`,
    `'2026-09-23'`) с позицией «2 шт. товара `id = 1` по цене 8900.00»
@@ -423,10 +427,11 @@ CREATE TABLE order_items (
    `'2026-09-24'`) с позицией «1 шт. товара `id = 2` по цене 6300.00»,
    списание 1 шт. со склада; смоделируйте сбой — `ROLLBACK`.
 3. Финальным `SELECT` выведите пост-состояние: все заказы с именем
-   покупателя (`customer_name`), `order_id`, `status`, `created_at` и
-   суммой позиций `order_total` (`SUM(quantity * price)` через `LEFT
-   JOIN` с `order_items` и `GROUP BY` по заказу). Сортировка по
-   `order_id`.
+   покупателя (`customer_name` — столбец `customers.name`, связь
+   `orders.customer_id` = `customers.id`), `order_id`, `status`,
+   `created_at` и суммой позиций `order_total` (`SUM(quantity * price)`
+   через `LEFT JOIN` с `order_items` по `order_id` и `GROUP BY` по
+   заказу). Сортировка по `order_id`.
 
 **expected_result_text:**
 

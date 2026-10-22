@@ -262,9 +262,10 @@ INNER JOIN совместно с WHERE и ORDER BY: фильтрация сое�
 
 Те же таблицы `customers` и `orders`. Напишите запрос, который вернёт все
 заказы клиента по имени «Дмитрий Орлов» (фильтр по `c.name`). Столбцы:
-`order_id`, `customer_name`, `total`, `created_at`. Соединение —
-`INNER JOIN`, условие фильтра — в `WHERE`, сортировка по убыванию
-`o.total`.
+`o.id` с алиасом `order_id`, `c.name` с алиасом `customer_name`,
+`o.total`, `o.created_at`. Соединение — `INNER JOIN` по
+`o.customer_id = c.id`, условие фильтра — в `WHERE`, сортировка по
+убыванию `o.total`.
 
 **expected_result_text:**
 
@@ -324,7 +325,8 @@ INNER JOIN совместно с GROUP BY и агрегатами: сводка 
 Те же таблицы `customers` и `orders`. Для каждого клиента, у которого есть
 заказы, посчитайте число его заказов и их общую сумму. Столбцы: `c.id`,
 `c.name`, `orders_count` (через `COUNT(*)`), `amount_total` (через
-`SUM(o.total)`). Соединение — `INNER JOIN`, группировка по `c.id` и
+`SUM(o.total)`). Соединение — `INNER JOIN` по `o.customer_id = c.id`,
+группировка по `c.id` и
 `c.name`, сортировка по убыванию `amount_total`, при равенстве — по
 возрастанию `c.id`. Клиенты без заказов (Роман Белов) в отчёт не попадают.
 

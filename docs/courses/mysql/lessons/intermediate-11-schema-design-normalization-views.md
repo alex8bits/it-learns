@@ -303,9 +303,11 @@ INSERT INTO orders_raw (customer_name, customer_city, order_date, product_name, 
 
 **statement:**
 
-Таблицы `categories` (четыре категории), `products` (шесть товаров),
-`orders` (четыре заказа, один — `'cancelled'`) и `order_items` (пять
-позиций). Отменённые заказы в отчёт не попадают.
+Таблицы `categories` (`id`, `name`), `products` (`id`, `category_id`;
+шесть товаров), `orders` (`id`, `status`; четыре заказа, один —
+`status` = `'cancelled'`) и `order_items` (`order_id`, `product_id`,
+`quantity`, `price`; пять позиций). Отменённые заказы
+(`status` <> `'cancelled'`) в отчёт не попадают.
 
 Создайте VIEW `category_sales`, которая выводит по каждой категории:
 
@@ -414,14 +416,16 @@ view — результат отражает изменение: view — не �
 
 **statement:**
 
-Таблицы `customers` (два покупателя), `products` (три товара),
-`orders` (два оплаченных заказа) и `order_items` (у заказа 1 — принтер
-и МФУ по 1 шт., у заказа 2 — 2 шт. сканера).
+Таблицы `customers` (`id`, `name`; два покупателя), `products` (три
+товара), `orders` (`id`, `customer_id`; два оплаченных заказа) и
+`order_items` (`order_id`, `product_id`, `quantity`, `price`; у заказа 1 —
+принтер и МФУ по 1 шт., у заказа 2 — 2 шт. сканера).
 
 1. Создайте VIEW `order_totals` с колонками `order_id`,
    `customer_name` и `total_amount` — сумма позиций заказа
    (`SUM(quantity * price)`, `GROUP BY` по заказу, соединение
-   `orders` + `customers` + `order_items`).
+   `orders` с `customers` по `customer_id` = `customers.id` и с
+   `order_items` по `order_id` = `orders.id`).
 2. Измените данные под view: увеличьте количество сканеров в заказе 2
    с 2 до 4 (`UPDATE order_items ... WHERE order_id = 2 AND product_id
    = 3`).

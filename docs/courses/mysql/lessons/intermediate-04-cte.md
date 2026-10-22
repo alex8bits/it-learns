@@ -249,11 +249,14 @@ SELECT day FROM calendar;
 
 Таблицы `customers` (три клиента), `orders` (пять заказов за февраль–июнь
 2026 года) и `order_items` (позиции с `quantity` и `price`; сумма заказа
-вычисляется как `SUM(quantity * price)`). Напишите запрос с **цепочкой из
+вычисляется как `SUM(quantity * price)`; связь с заказом —
+`order_items.order_id = orders.id`, заказ с клиентом —
+`orders.customer_id = customers.id`). Напишите запрос с **цепочкой из
 двух CTE**: первое (`order_totals`) считает сумму каждого заказа,
 второе (`customer_totals`) агрегирует уже эти суммы по клиенту — число
 заказов и общую потраченную сумму. Финальный `SELECT` соединяет
-`customer_totals` с `customers` для имени и оставляет клиентов,
+`customer_totals` с `customers` по `customers.id`, чтобы получить столбец
+`name`, и оставляет клиентов,
 потративших **строго больше 10000 рублей**. Результат — три столбца:
 `name`, `orders_count`, `total_spent`. Отсортируйте по убыванию
 `total_spent`.
@@ -394,10 +397,10 @@ INSERT INTO categories (id, parent_id, name) VALUES
 месяцев от `2026-01-01` до `2026-06-01` (якорь — первая дата,
 рекурсивная часть прибавляет `INTERVAL 1 MONTH` с условием останова),
 вторым CTE (`monthly`) посчитайте по месяцам с заказами число заказов
-(`COUNT(DISTINCT o.id)` — соединение с позициями размножает строки) и
-выручку `SUM(quantity * price)`; месячный ключ —
-`DATE_FORMAT(..., '%Y-%m')`. Финальный `SELECT` — `LEFT JOIN` календаря
-к месячным суммам: у месяцев без заказов счётчики остаются NULL.
+(`COUNT(DISTINCT o.id)` — соединение `order_items.order_id = o.id`
+размножает строки) и выручку `SUM(quantity * price)`; месячный ключ —
+`DATE_FORMAT(o.created_at, '%Y-%m')`. Финальный `SELECT` — `LEFT JOIN`
+календаря к месячным суммам: у месяцев без заказов счётчики остаются NULL.
 Результат — три столбца: `month_start`, `orders_count`, `revenue`.
 Отсортируйте по возрастанию `month_start`.
 

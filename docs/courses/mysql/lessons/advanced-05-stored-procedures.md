@@ -388,11 +388,11 @@ INSERT INTO products (category_id, name, price) VALUES
 
 **statement:**
 
-Таблица `products` (шесть товаров, категории 1–3). Скидочная кампания
-затрагивает только одну категорию за раз. Создайте процедуру
-`discount_category` с двумя входными параметрами:
+Таблица `products` (шесть товаров, столбец `category_id` со значениями
+1–3). Скидочная кампания затрагивает только одну категорию за раз.
+Создайте процедуру `discount_category` с двумя входными параметрами:
 `p_category_id INT` и `p_pct DECIMAL(5,2)`. Тело — одна инструкция
-`UPDATE` без `BEGIN ... END`: товары категории `p_category_id`
+`UPDATE` без `BEGIN ... END`: товары с `category_id = p_category_id`
 получают цену `ROUND(price * (1 - p_pct / 100), 2)`, остальные
 товары не меняются. Вызовите процедуру для категории 2 со скидкой
 15% и выведите пост-состояние: `id`, `name`, `price`, сортировка
@@ -447,9 +447,12 @@ INSERT INTO products (category_id, name, price) VALUES
 **statement:**
 
 Таблицы `customers` (пять покупателей, у всех `discount_pct = 0`)
-и `orders` (восемь заказов со статусами `paid` и `cancelled`).
+и `orders` (`customer_id`, `status`, `total`; восемь заказов со
+статусами `paid` и `cancelled`).
 Программа лояльности: покупателям, у которых сумма **оплаченных**
-заказов (`status = 'paid'`) достигает порога, начисляется скидка.
+заказов (`status = 'paid'`, сумма — столбец `total`, связь
+`orders.customer_id` = `customers.id`) достигает порога, начисляется
+скидка.
 Создайте процедуру `grant_loyalty_discount` с двумя входными
 параметрами: `p_min_total DECIMAL(10,2)` — порог суммы и
 `p_pct INT` — размер скидки в процентах. Тело — одна инструкция

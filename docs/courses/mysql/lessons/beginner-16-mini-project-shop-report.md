@@ -223,7 +223,8 @@ ORDER BY total_spent DESC;
 **statement:**
 
 Мини-проект использует таблицы `categories`, `products`, `customers`,
-`orders`, `order_items` (все связи — через внешние ключи). Постройте
+`orders`, `order_items` (связи этой сводки: `orders.customer_id` =
+`customers.id`, `order_items.order_id` = `orders.id`). Постройте
 сводку по клиентам: столбцы `c.id`, `c.name`, `orders_count` (число
 заказов — `COUNT(DISTINCT o.id)`: соединение с `order_items` размножает
 строку заказа на строки позиций), `total_spent` (через
