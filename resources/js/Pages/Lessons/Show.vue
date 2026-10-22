@@ -504,7 +504,7 @@ watch(
 <template>
     <div class="min-h-screen bg-gray-50">
         <header class="bg-white border-b border-gray-200">
-            <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="w-full px-6 py-4 flex items-center justify-between lg:px-8">
                 <div class="flex items-center gap-2">
                     <button
                         type="button"
@@ -605,7 +605,7 @@ watch(
             </aside>
 
             <main class="min-w-0 flex-1">
-                <div class="max-w-4xl mx-auto px-4 py-10">
+                <div class="w-full px-6 py-10 lg:px-10">
                     <div
                         v-if="previewMode"
                         class="mb-6 rounded bg-yellow-50 border border-yellow-300 px-4 py-3 text-sm text-yellow-800"
